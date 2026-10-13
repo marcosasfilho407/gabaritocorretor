@@ -33,114 +33,152 @@ def obter_disciplina(q):
 
 
 # ---------------------------------------------------------
-# PROCESSAMENTO DE IMAGEM (OMR - 52 QUESTÕES)
+# VISÃO COMPUTACIONAL AVANÇADA (OMR POR ANCORAGEM)
 # ---------------------------------------------------------
 def ordenar_pontos(pts):
     rect = np.zeros((4, 2), dtype='float32')
     s = pts.sum(axis=1)
-    rect[0] = pts[np.argmin(s)]
-    rect[2] = pts[np.argmax(s)]
+    rect[0] = pts[np.argmin(s)]       # Superior Esquerdo (TL)
+    rect[2] = pts[np.argmax(s)]       # Inferior Direito (BR)
     diff = np.diff(pts, axis=1)
-    rect[1] = pts[np.argmin(diff)]
-    rect[3] = pts[np.argmax(diff)]
+    rect[1] = pts[np.argmin(diff)]    # Superior Direito (TR)
+    rect[3] = pts[np.argmax(diff)]    # Inferior Esquerdo (BL)
     return rect
 
 
 def retificar_grelha(imagem, largura=1200, altura=600):
-    """Localiza os cantos externos do gabarito e ajusta a perspectiva."""
+    """Localiza os 4 marcadores pretos de canto do cartão e aplica Perspective Warp."""
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    thresh = cv2.threshold(
-        blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
-    )[1]
 
-    cnts, _ = cv2.findContours(
-        thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    # Threshold adaptativo para encontrar os quadrados pretos mesmo com sombras
+    thresh_adapt = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, 21, 10
     )
-    cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
 
+    cnts, _ = cv2.findContours(thresh_adapt, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    ancoras = []
     for c in cnts:
-        peri = cv2.arcLength(c, True)
-        approx = cv2.approxPolyDP(c, 0.02 * peri, True)
-        if len(approx) == 4:
-            pts_origem = ordenar_pontos(approx.reshape(4, 2))
-            pts_destino = np.array(
-                [[0, 0], [largura - 1, 0], [largura - 1, altura - 1], [0, altura - 1]],
-                dtype='float32',
-            )
-            M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
-            return cv2.warpPerspective(imagem, M, (largura, altura))
+        area = cv2.contourArea(c)
+        if 100 < area < 8000:
+            x, y, w, h = cv2.boundingRect(c)
+            aspect = float(w) / h
+            extent = area / float(w * h)
+            if 0.6 <= aspect <= 1.4 and extent > 0.6:
+                M = cv2.moments(c)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    ancoras.append((cx, cy, area))
 
+    if len(ancoras) >= 4:
+        # Seleciona os candidatos mais consistentes
+        ancoras = sorted(ancoras, key=lambda p: p[2], reverse=True)[:12]
+        pts_cand = np.array([[p[0], p[1]] for p in ancoras], dtype="float32")
+
+        pts_origem = ordenar_pontos(pts_cand)
+        pts_destino = np.array([
+            [0, 0],
+            [largura - 1, 0],
+            [largura - 1, altura - 1],
+            [0, altura - 1]
+        ], dtype="float32")
+
+        M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
+        return cv2.warpPerspective(imagem, M, (largura, altura))
+
+    # Fallback se a foto estiver muito aproximada/cortada
     return cv2.resize(imagem, (largura, altura))
 
 
-def ler_respostas_52_questoes(img_warped, gabarito_oficial=None):
-    """Lê a grade de 52 questões divididas em 4 colunas de 13 linhas e desenha marcações visuais."""
+def ler_respostas_52_questoes(img_warped, gabarito_oficial=None, sensibilidade=10.0):
+    """
+    Realiza a leitura OMR baseada no contraste relativo de tom de cinza.
+    """
     gray = cv2.cvtColor(img_warped, cv2.COLOR_BGR2GRAY)
-    thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV)[1]
     img_annotated = img_warped.copy()
 
     opcoes = ['A', 'B', 'C', 'D', 'E']
     respostas_aluno = {}
 
-    largura_coluna = 1200 / 4.0
-    altura_linha = (600 - 50) / 13.0
+    largura_total = 1200
+    altura_total = 600
+    largura_coluna = largura_total / 4.0
+
+    # Calibração geométrica dos centros das bolhas
+    y_top = 32
+    y_bot = 582
 
     for col in range(4):
-        for lin in range(13):
-            num_questao = col * 13 + lin + 1
-            y_start = int(45 + lin * altura_linha)
-            x_start_col = int(col * largura_coluna + (largura_coluna * 0.35))
+        col_x_start = col * largura_coluna
+        b_start_x = col_x_start + largura_coluna * 0.20
+        b_end_x = col_x_start + largura_coluna * 0.90
+        b_step = (b_end_x - b_start_x) / 5.0
 
-            largura_opcoes = largura_coluna * 0.6
-            passo_opcao = largura_opcoes / 5.0
+        for row in range(13):
+            num_questao = col * 13 + row + 1
+            y_center = y_top + (row + 0.5) * ((y_bot - y_top) / 13.0)
 
-            contagem_pixels = []
+            medias_cinza = []
             coords_opcoes = []
 
             for opt_idx in range(5):
-                x_opt = int(x_start_col + opt_idx * passo_opcao)
-                w_box = int(passo_opcao * 0.7)
-                h_box = int(altura_linha * 0.7)
+                bx = b_start_x + (opt_idx + 0.5) * b_step
+                by = y_center
 
-                roi = thresh[y_start : y_start + h_box, x_opt : x_opt + w_box]
-                total_preenchido = cv2.countNonZero(roi)
-                contagem_pixels.append(total_preenchido)
-                coords_opcoes.append((x_opt, y_start, w_box, h_box))
+                r = 10
+                x1, x2 = int(bx - r), int(bx + r)
+                y1, y2 = int(by - r), int(by + r)
 
-            max_p = max(contagem_pixels) if len(contagem_pixels) > 0 else 0
-            if max_p > 120:  # Limiar de tinta
-                idx_marcado = np.argmax(contagem_pixels)
-                resp_detectada = opcoes[idx_marcado]
-                respostas_aluno[num_questao] = resp_detectada
+                roi = gray[max(0, y1):min(altura_total, y2), max(0, x1):min(largura_total, x2)]
+                media_tom = float(np.mean(roi)) if roi.size > 0 else 255.0
+
+                medias_cinza.append(media_tom)
+                coords_opcoes.append((int(bx), int(by)))
+
+            # Avalia a bolha mais escura da linha
+            min_idx = int(np.argmin(medias_cinza))
+            min_val = medias_cinza[min_idx]
+
+            outras_medias = [m for i, m in enumerate(medias_cinza) if i != min_idx]
+            media_outras = np.mean(outras_medias) if outras_medias else 255.0
+            diferenca_contraste = media_outras - min_val
+
+            # Se a diferença para as outras for maior que o limiar de sensibilidade
+            if diferenca_contraste >= sensibilidade:
+                resp_detectada = opcoes[min_idx]
+                idx_marcado = min_idx
             else:
                 resp_detectada = 'Branco/Nulo'
                 idx_marcado = -1
-                respostas_aluno[num_questao] = resp_detectada
 
-            # Desenho das marcações visuais sobre a imagem
+            respostas_aluno[num_questao] = resp_detectada
+
+            # Desenho das marcações visuais (Overlay OMR)
             gab_correto = gabarito_oficial.get(num_questao) if gabarito_oficial else None
 
-            for opt_idx, (x_opt, y_opt, w_b, h_b) in enumerate(coords_opcoes):
+            for opt_idx, (bx, by) in enumerate(coords_opcoes):
                 opcao_letra = opcoes[opt_idx]
-                
+
                 if opt_idx == idx_marcado:
                     if gab_correto and opcao_letra == gab_correto:
-                        cor = (0, 255, 0)  # Verde: Acerto
+                        cor = (0, 255, 0)     # Verde: Acerto
                     elif gab_correto and opcao_letra != gab_correto:
-                        cor = (0, 0, 255)  # Vermelho: Erro do aluno
+                        cor = (0, 0, 255)     # Vermelho: Erro
                     else:
-                        cor = (0, 255, 255) # Amarelo (sem gabarito)
-                    cv2.rectangle(img_annotated, (x_opt, y_opt), (x_opt + w_b, y_opt + h_b), cor, 2)
+                        cor = (0, 255, 255)   # Amarelo
+                    cv2.circle(img_annotated, (bx, by), 10, cor, -1)
                 elif gab_correto and opcao_letra == gab_correto and resp_detectada != gab_correto:
-                    # Destacar gabarito correto em azul quando o aluno errou/deixou em branco
-                    cv2.rectangle(img_annotated, (x_opt, y_opt), (x_opt + w_b, y_opt + h_b), (255, 0, 0), 1)
+                    # Desenha círculo azul na resposta correta quando o aluno errou ou deixou em branco
+                    cv2.circle(img_annotated, (bx, by), 10, (255, 0, 0), 2)
 
-    return respostas_aluno, thresh, img_annotated
+    return respostas_aluno, img_annotated
 
 
 # ---------------------------------------------------------
-# INTERFACE DO USUÁRIO
+# INTERFACE DO USUÁRIO STREAMLIT
 # ---------------------------------------------------------
 st.title('📌 Corretor de Simulado - 3º Ano (52 Questões)')
 
@@ -238,12 +276,23 @@ with tab_correcao:
         nome_aluno = st.text_input('Nome do Aluno:', placeholder='Ex: Maria Souza')
         turma = st.text_input('Turma:', value='3º Ano A')
 
+        st.divider()
+        st.subheader('Ajustes da Leitura')
+        sensibilidade_omr = st.slider(
+            'Sensibilidade da Caneta (OMR)',
+            min_value=3.0,
+            max_value=25.0,
+            value=8.0,
+            step=0.5,
+            help='Diminua se o aluno usou caneta fraca ou lápis; aumente se houver reflexos/sombras.'
+        )
+
         st.info('📌 Português: Q01 a Q26\n📌 Matemática: Q27 a Q52')
 
     with col_cam:
         origem = st.radio("Fonte da Imagem:", ["Câmera", "Enviar Arquivo (Upload)"], horizontal=True)
         img_input = None
-        
+
         if origem == "Câmera":
             foto = st.camera_input('Posicione a folha de 52 questões na tela')
             if foto:
@@ -255,17 +304,19 @@ with tab_correcao:
 
     if img_input:
         if not nome_aluno:
-            st.warning('⚠️️ Por favor, informe o nome do aluno antes de prosseguir.')
+            st.warning('⚠️ Por favor, informe o nome do aluno antes de prosseguir.')
         else:
             file_bytes = np.asarray(bytearray(img_input.read()), dtype=np.uint8)
             img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-            # 1. Ajustar Perspectiva
+            # 1. Ajustar Perspectiva usando os 4 marcadores de canto
             img_warped = retificar_grelha(img)
 
-            # 2. Ler Respostas (52 questões) e gerar visualização
+            # 2. Ler Respostas e gerar visualização
             gabarito = st.session_state['gabarito_oficial']
-            respostas_aluno, _, img_annotated = ler_respostas_52_questoes(img_warped, gabarito)
+            respostas_aluno, img_annotated = ler_respostas_52_questoes(
+                img_warped, gabarito, sensibilidade=sensibilidade_omr
+            )
 
             acertos_port = 0
             acertos_mat = 0
@@ -318,7 +369,7 @@ with tab_correcao:
             with col_img:
                 st.subheader('Imagem Processada (Visualização OMR)')
                 st.image(img_annotated, channels='BGR', use_container_width=True)
-                st.caption("🟩 Verde = Acerto | 🟥 Vermelho = Erro | 🟦 Azul = Gabarito Correto")
+                st.caption("🟢 Círculo Verde = Acerto | 🔴 Círculo Vermelho = Erro | 🔵 Círculo Azul = Gabarito Correto")
 
             with col_det:
                 st.subheader('Detalhamento')
