@@ -352,79 +352,82 @@ DADOS_ALUNOS_EMBUTIDOS = """Turma,Número,Matrícula,Nome
 
 
 def carregar_estudantes():
-    """Carrega o dicionário de turmas e alunos a partir do TXT local ou fallback."""
-    caminho_txt = "todososalunosporturma.txt"
-    if os.path.exists(caminho_txt):
-        try:
-            df = pd.read_csv(caminho_txt)
-        except Exception:
-            df = pd.read_csv(io.StringIO(DADOS_ALUNOS_EMBUTIDOS))
-    else:
-        df = pd.read_csv(io.StringIO(DADOS_ALUNOS_EMBUTIDOS))
+  """Carrega o dicionário de turmas e alunos a partir do TXT local ou fallback."""
+  caminho_txt = "todososalunosporturma.txt"
+  if os.path.exists(caminho_txt):
+    try:
+      df = pd.read_csv(caminho_txt)
+    except Exception:
+      df = pd.read_csv(io.StringIO(DADOS_ALUNOS_EMBUTIDOS))
+  else:
+    df = pd.read_csv(io.StringIO(DADOS_ALUNOS_EMBUTIDOS))
 
-    turmas = {}
-    for turma, group in df.groupby("Turma", sort=False):
-        alunos = []
-        for _, row in group.iterrows():
-            num = (
-                str(int(row["Número"]))
-                if pd.notna(row["Número"]) and str(row["Número"]).strip() != ""
-                else ""
-            )
-            mat = (
-                str(int(row["Matrícula"]))
-                if pd.notna(row["Matrícula"])
-                and str(row["Matrícula"]).strip() != ""
-                else ""
-            )
-            nome = str(row["Nome"]).strip()
-            alunos.append({"numero": num, "matricula": mat, "nome": nome})
-        turmas[str(turma).strip()] = alunos
+  turmas = {}
+  for turma, group in df.groupby("Turma", sort=False):
+    alunos = []
+    for _, row in group.iterrows():
+      num = (
+          str(int(row["Número"]))
+          if pd.notna(row["Número"]) and str(row["Número"]).strip() != ""
+          else ""
+      )
+      mat = (
+          str(int(row["Matrícula"]))
+          if pd.notna(row["Matrícula"]) and str(row["Matrícula"]).strip() != ""
+          else ""
+      )
+      nome = str(row["Nome"]).strip()
+      alunos.append({"numero": num, "matricula": mat, "nome": nome})
+    turmas[str(turma).strip()] = alunos
 
-    return turmas
+  return turmas
+
+
+def obter_ano_da_turma(turma):
+  """Mapeia o nome da turma para o Ano/Série correspondente."""
+  if "1º" in turma or "1" in turma:
+    return "1º Ano"
+  elif "2º" in turma or "2" in turma:
+    return "2º Ano"
+  elif "3º" in turma or "3" in turma:
+    return "3º Ano"
+  return "1º Ano"
 
 
 # ---------------------------------------------------------
-# GABARITO OFICIAL PADRÃO (40 QUESTÕES POR DISCIPLINA)
+# GABARITOS OFICIAIS PADRÃO POR ANO / SÉRIE (40 QUESTÕES)
 # ---------------------------------------------------------
-GABARITO_SIMULADO_DEFAULT = {
-    # Filosofia (01 a 05)
+GABARITO_1ANO_BASE = {
     1: "A",
     2: "B",
     3: "C",
     4: "D",
     5: "E",
-    # História (06 a 10)
     6: "A",
     7: "B",
     8: "C",
     9: "D",
     10: "E",
-    # Geografia (11 a 15)
     11: "A",
     12: "B",
     13: "C",
     14: "D",
     15: "E",
-    # Sociologia (16 a 20)
     16: "A",
     17: "B",
     18: "C",
     19: "D",
     20: "E",
-    # Educação Física (21 a 24)
     21: "A",
     22: "B",
     23: "C",
     24: "D",
-    # Inglês (25 a 30)
     25: "A",
     26: "B",
     27: "C",
     28: "D",
     29: "E",
     30: "A",
-    # Português (31 a 40)
     31: "A",
     32: "B",
     33: "C",
@@ -437,6 +440,98 @@ GABARITO_SIMULADO_DEFAULT = {
     40: "E",
 }
 
+GABARITO_2ANO_BASE = {
+    1: "B",
+    2: "C",
+    3: "D",
+    4: "E",
+    5: "A",
+    6: "B",
+    7: "C",
+    8: "D",
+    9: "E",
+    10: "A",
+    11: "B",
+    12: "C",
+    13: "D",
+    14: "E",
+    15: "A",
+    16: "B",
+    17: "C",
+    18: "D",
+    19: "E",
+    20: "A",
+    21: "B",
+    22: "C",
+    23: "D",
+    24: "E",
+    25: "B",
+    26: "C",
+    27: "D",
+    28: "E",
+    29: "A",
+    30: "B",
+    31: "B",
+    32: "C",
+    33: "D",
+    34: "E",
+    35: "A",
+    36: "B",
+    37: "C",
+    38: "D",
+    39: "E",
+    40: "A",
+}
+
+GABARITO_3ANO_BASE = {
+    1: "C",
+    2: "D",
+    3: "E",
+    4: "A",
+    5: "B",
+    6: "C",
+    7: "D",
+    8: "E",
+    9: "A",
+    10: "B",
+    11: "C",
+    12: "D",
+    13: "E",
+    14: "A",
+    15: "B",
+    16: "C",
+    17: "D",
+    18: "E",
+    19: "A",
+    20: "B",
+    21: "C",
+    22: "D",
+    23: "E",
+    24: "A",
+    25: "C",
+    26: "D",
+    27: "E",
+    28: "A",
+    29: "B",
+    30: "C",
+    31: "C",
+    32: "D",
+    33: "E",
+    34: "A",
+    35: "B",
+    36: "C",
+    37: "D",
+    38: "E",
+    39: "A",
+    40: "B",
+}
+
+GABARITOS_MULTI_ANO_DEFAULT = {
+    "1º Ano": GABARITO_1ANO_BASE.copy(),
+    "2º Ano": GABARITO_2ANO_BASE.copy(),
+    "3º Ano": GABARITO_3ANO_BASE.copy(),
+}
+
 # Configuração da Página Streamlit
 st.set_page_config(
     page_title="Corretor de Simulado Trimestral",
@@ -445,8 +540,12 @@ st.set_page_config(
 )
 
 # Inicializações na Sessão
-if "gabarito_oficial" not in st.session_state:
-  st.session_state["gabarito_oficial"] = GABARITO_SIMULADO_DEFAULT.copy()
+if "gabaritos_oficiais" not in st.session_state:
+  st.session_state["gabaritos_oficiais"] = {
+      "1º Ano": GABARITO_1ANO_BASE.copy(),
+      "2º Ano": GABARITO_2ANO_BASE.copy(),
+      "3º Ano": GABARITO_3ANO_BASE.copy(),
+  }
 
 if "historico" not in st.session_state:
   st.session_state["historico"] = []
@@ -454,22 +553,21 @@ if "historico" not in st.session_state:
 if "dados_turmas" not in st.session_state:
   st.session_state["dados_turmas"] = carregar_estudantes()
 
+DISCIPLINAS_MAP = {
+    "Filosofia (01-05)": range(1, 6),
+    "História (06-10)": range(6, 11),
+    "Geografia (11-15)": range(11, 16),
+    "Sociologia (16-20)": range(16, 21),
+    "Educação Física (21-24)": range(21, 25),
+    "Inglês (25-30)": range(25, 31),
+    "Português (31-40)": range(31, 41),
+}
+
 
 def obter_disciplina(q):
-  if 1 <= q <= 5:
-    return "Filosofia (01-05)"
-  elif 6 <= q <= 10:
-    return "História (06-10)"
-  elif 11 <= q <= 15:
-    return "Geografia (11-15)"
-  elif 16 <= q <= 20:
-    return "Sociologia (16-20)"
-  elif 21 <= q <= 24:
-    return "Educação Física (21-24)"
-  elif 25 <= q <= 30:
-    return "Inglês (25-30)"
-  elif 31 <= q <= 40:
-    return "Português (31-40)"
+  for disc, q_range in DISCIPLINAS_MAP.items():
+    if q in q_range:
+      return disc
   return "Desconhecida"
 
 
@@ -640,13 +738,13 @@ st.title("📌 Corretor de Cartão-Resposta - Simulado Trimestral")
 
 tab_correcao, tab_gabarito, tab_estudantes, tab_relatorio = st.tabs([
     "📷 Corrigir Prova",
-    "📝 Gabarito Oficial",
+    "📝 Gabaritos Oficiais por Ano/Disciplina",
     "👥 Estudantes por Turma",
     "📊 Resultados da Turma",
 ])
 
 # ---------------------------------------------------------
-# ABA 1: CORRIGIR PROVA (SELEÇÃO DE ESTUDANTE)
+# ABA 1: CORRIGIR PROVA
 # ---------------------------------------------------------
 with tab_correcao:
   st.header("Captura ou Upload do Cartão de Respostas")
@@ -665,9 +763,10 @@ with tab_correcao:
         index=0 if lista_turmas else 0,
     )
 
+    ano_estudante = obter_ano_da_turma(turma_selecionada)
+
     alunos_da_turma = dados_turmas.get(turma_selecionada, [])
 
-    # Monta opções formatadas "Nº - Nome"
     opcoes_alunos = []
     for a in alunos_da_turma:
       label = (
@@ -692,14 +791,12 @@ with tab_correcao:
       mat_aluno = ""
 
     # Exibe ficha rápida do aluno selecionado
-    with st.expander("📄 Ficha do Aluno Selecionado", expanded=True):
+    with st.expander("📄 Ficha do Aluno e Gabarito Vinculado", expanded=True):
       st.markdown(f"**Nome:** {nome_aluno}")
       st.markdown(
           f"**Turma:** {turma_selecionada} | **Nº Chamada:** {num_aluno if num_aluno else 'N/A'}"
       )
-      st.markdown(
-          f"**Matrícula:** {mat_aluno if mat_aluno else 'Não cadastrada'}"
-      )
+      st.info(f"🎯 **Gabarito Oficial Aplicado:** {ano_estudante}")
 
     st.divider()
     st.subheader("Ajustes da Leitura OMR")
@@ -747,8 +844,13 @@ with tab_correcao:
       # 1. Retificar Perspectiva
       img_warped = retificar_grelha(img)
 
-      # 2. Ler Respostas (40 questões)
-      gabarito = st.session_state["gabarito_oficial"]
+      # 2. Obter Gabarito do Ano/Série do aluno
+      gabaritos_todos = st.session_state["gabaritos_oficiais"]
+      gabarito = gabaritos_todos.get(
+          ano_estudante, gabaritos_todos.get("1º Ano", {})
+      )
+
+      # 3. Ler Respostas (40 questões)
       respostas_aluno, img_annotated = ler_respostas_40_questoes(
           img_warped, gabarito, sensibilidade=sensibilidade_omr
       )
@@ -798,7 +900,10 @@ with tab_correcao:
       m1, m2, m3 = st.columns(3)
       m1.metric("Total de Acertos", f"{total_acertos} / 40")
       m2.metric("Nota Final", f"{nota:.2f} / 10.0")
-      m3.metric("Estudante / Turma", f"{nome_aluno} ({turma_selecionada})")
+      m3.metric(
+          "Estudante / Turma",
+          f"{nome_aluno} ({turma_selecionada} - {ano_estudante})",
+      )
 
       # Métricas por Disciplina
       cols_disc = st.columns(len(acertos_por_disc))
@@ -808,6 +913,7 @@ with tab_correcao:
 
       if st.button("💾 Salvar Resultado no Histórico", type="primary"):
         registro = {
+            "Série": ano_estudante,
             "Turma": turma_selecionada,
             "Nº": num_aluno,
             "Matrícula": mat_aluno,
@@ -838,59 +944,105 @@ with tab_correcao:
         )
 
 # ---------------------------------------------------------
-# ABA 2: GABARITO OFICIAL
+# ABA 2: GABARITOS OFICIAIS POR ANO E DISCIPLINA
 # ---------------------------------------------------------
 with tab_gabarito:
-  st.header("Cadastrar Gabarito Oficial")
+  st.header("Cadastrar e Gerenciar Gabaritos Oficiais")
   st.caption(
-      "Filosofia (01-05) | História (06-10) | Geografia (11-15) | Sociologia"
-      " (16-20) | Ed. Física (21-24) | Inglês (25-30) | Português (31-40)"
+      "Defina as respostas corretas por Ano/Série e por Disciplina para cada"
+      " simulado."
   )
 
-  col_df, col_actions = st.columns([2, 1])
+  # Seleção de Ano/Série e Disciplina
+  col_s1, col_s2 = st.columns(2)
+  with col_s1:
+    ano_gab_sel = st.selectbox(
+        "Selecione o Ano / Série para Editar:",
+        ["1º Ano", "2º Ano", "3º Ano"],
+        index=0,
+    )
 
-  with col_actions:
-    st.subheader("Ações Rápidas")
-    if st.button("🔄 Restaurar Gabarito Padrão"):
-      st.session_state["gabarito_oficial"] = GABARITO_SIMULADO_DEFAULT.copy()
-      st.success("Gabarito padrão restaurado!")
+  with col_s2:
+    disc_filtro = st.selectbox(
+        "Filtrar por Disciplina:",
+        ["Todas as Disciplinas"] + list(DISCIPLINAS_MAP.keys()),
+        index=0,
+    )
+
+  st.divider()
+  col_df_gab, col_act_gab = st.columns([2, 1])
+
+  gabarito_ano_atual = st.session_state["gabaritos_oficiais"].get(
+      ano_gab_sel, {}
+  )
+
+  with col_act_gab:
+    st.subheader("Ações do Gabarito")
+    if st.button(f"🔄 Restaurar Padrão do {ano_gab_sel}"):
+      st.session_state["gabaritos_oficiais"][ano_gab_sel] = (
+          GABARITOS_MULTI_ANO_DEFAULT[ano_gab_sel].copy()
+      )
+      st.success(f"Gabarito padrão do {ano_gab_sel} restaurado!")
+      st.rerun()
+
+    if st.button("🔄 Restaurar Todos os Anos"):
+      st.session_state["gabaritos_oficiais"] = {
+          "1º Ano": GABARITO_1ANO_BASE.copy(),
+          "2º Ano": GABARITO_2ANO_BASE.copy(),
+          "3º Ano": GABARITO_3ANO_BASE.copy(),
+      }
+      st.success("Todos os gabaritos foram restaurados para o padrão!")
       st.rerun()
 
     st.divider()
     st.subheader("Importar via Arquivo")
-    arquivo = st.file_uploader(
-        "Upload de CSV ou XLSX (40 questões)", type=["csv", "xlsx"]
+    arquivo_gab_up = st.file_uploader(
+        f"Upload de Gabarito para o {ano_gab_sel} (CSV ou XLSX)",
+        type=["csv", "xlsx"],
     )
-    if arquivo:
+    if arquivo_gab_up:
       try:
-        df_up = (
-            pd.read_csv(arquivo)
-            if arquivo.name.endswith(".csv")
-            else pd.read_excel(arquivo)
+        df_up_g = (
+            pd.read_csv(arquivo_gab_up)
+            if arquivo_gab_up.name.endswith(".csv")
+            else pd.read_excel(arquivo_gab_up)
         )
-        if "Questão" in df_up.columns and "Gabarito" in df_up.columns:
-          nuevo_gab = dict(zip(df_up["Questão"][:40], df_up["Gabarito"][:40]))
-          st.session_state["gabarito_oficial"].update(nuevo_gab)
-          st.success("Gabarito atualizado!")
+        if "Questão" in df_up_g.columns and "Gabarito" in df_up_g.columns:
+          nuevo_dic = dict(
+              zip(df_up_g["Questão"][:40], df_up_g["Gabarito"][:40])
+          )
+          st.session_state["gabaritos_oficiais"][ano_gab_sel].update(
+              nuevo_dic
+          )
+          st.success(f"Gabarito do {ano_gab_sel} atualizado via arquivo!")
           st.rerun()
         else:
-          st.error("O arquivo precisa ter as colunas 'Questão' e 'Gabarito'.")
-      except Exception as e:
-        st.error(f"Erro ao carregar arquivo: {e}")
+          st.error("O arquivo precisa conter as colunas 'Questão' e 'Gabarito'.")
+      except Exception as err_g:
+        st.error(f"Erro ao carregar arquivo: {err_g}")
 
-  with col_df:
-    st.subheader("Tabela do Gabarito")
-    df_gab = pd.DataFrame([
+  with col_df_gab:
+    st.subheader(f"Tabela de Respostas ({ano_gab_sel})")
+
+    # Monta lista de questões conforme o filtro de disciplina
+    if disc_filtro == "Todas as Disciplinas":
+      questoes_exibidas = list(range(1, 41))
+    else:
+      questoes_exibidas = list(DISCIPLINAS_MAP[disc_filtro])
+
+    dados_tabela_gab = [
         {
             "Questão": q,
             "Disciplina": obter_disciplina(q),
-            "Gabarito": st.session_state["gabarito_oficial"].get(q, "A"),
+            "Gabarito": gabarito_ano_atual.get(q, "A"),
         }
-        for q in range(1, 41)
-    ])
+        for q in questoes_exibidas
+    ]
 
-    df_editado = st.data_editor(
-        df_gab,
+    df_gab_editor = pd.DataFrame(dados_tabela_gab)
+
+    df_gab_modificado = st.data_editor(
+        df_gab_editor,
         column_config={
             "Questão": st.column_config.NumberColumn("Questão", disabled=True),
             "Disciplina": st.column_config.TextColumn(
@@ -903,15 +1055,16 @@ with tab_gabarito:
             ),
         },
         hide_index=True,
-        height=500,
+        height=450,
         use_container_width=True,
     )
 
     if st.button("💾 Salvar Alterações na Tabela", type="primary"):
-      st.session_state["gabarito_oficial"] = dict(
-          zip(df_editado["Questão"], df_editado["Gabarito"])
-      )
-      st.success("Gabarito salvo com sucesso!")
+      for _, row_g in df_gab_modificado.iterrows():
+        q_num = int(row_g["Questão"])
+        g_val = str(row_g["Gabarito"])
+        st.session_state["gabaritos_oficiais"][ano_gab_sel][q_num] = g_val
+      st.success(f"Gabarito do {ano_gab_sel} salvo com sucesso!")
 
 # ---------------------------------------------------------
 # ABA 3: GERENCIAR ESTUDANTES POR TURMA
