@@ -1,17 +1,191 @@
 import io
 import json
 import os
+import base64
 import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
 
 # ---------------------------------------------------------
-# CONSTANTES E ARQUIVOS DE PERSISTÊNCIA EM DISCO
+# ARQUIVOS DE PERSISTÊNCIA EM DISCO
 # ---------------------------------------------------------
 ARQUIVO_GABARITOS_JSON = "gabaritos_oficiais.json"
 ARQUIVO_HISTORICO_JSON = "historico_correcoes.json"
 ARQUIVO_ALUNOS_TXT = "todososalunosporturma.txt"
+
+# ---------------------------------------------------------
+# FUNÇÃO DE OBTENÇÃO DA IMAGEM DE FUNDO (BASE64)
+# ---------------------------------------------------------
+def obter_imagem_fundo_base64():
+    """Procura a imagem do projeto no diretório e converte para Base64."""
+    candidatos = [
+        "Gemini_Generated_Image_vktbzrvktbzrvktb.jfif",
+        "background.jfif",
+        "background.jpg",
+        "background.png",
+        "jt_background.jfif",
+        "input_file_8.png"
+    ]
+    for c in candidatos:
+        if os.path.exists(c):
+            try:
+                with open(c, "rb") as f:
+                    data = f.read()
+                    b64 = base64.b64encode(data).decode("utf-8")
+                    ext = "jpeg" if c.endswith((".jpg", ".jpeg", ".jfif")) else "png"
+                    return f"data:image/{ext};base64,{b64}"
+            except Exception:
+                pass
+    return None
+
+# ---------------------------------------------------------
+# ESTILIZAÇÃO CSS COM CORES DO SÍMBOLO JT E IMAGEM DE FUNDO
+# ---------------------------------------------------------
+def aplicar_estilo_jt():
+    bg_base64 = obter_imagem_fundo_base64()
+    
+    if bg_base64:
+        bg_css = f"""
+            background: linear-gradient(rgba(5, 9, 20, 0.88), rgba(8, 15, 32, 0.94)), url('{bg_base64}');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        """
+    else:
+        bg_css = """
+            background: linear-gradient(135deg, #050811 0%, #0a1122 50%, #0d1830 100%);
+        """
+
+    st.markdown(f"""
+        <style>
+        /* Fundo Geral */
+        .stApp {{
+            {bg_css}
+            color: #E2E8F0;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }}
+
+        /* Ocultar barra superior padrão do Streamlit */
+        header[data-testid="stHeader"] {{
+            background: rgba(0, 0, 0, 0);
+        }}
+
+        /* Cabeçalho JT Personalizado */
+        .jt-header-container {{
+            background: linear-gradient(135deg, rgba(16, 26, 50, 0.85) 0%, rgba(8, 14, 28, 0.95) 100%);
+            border: 2px solid #FFB800;
+            box-shadow: 0 0 25px rgba(30, 80, 255, 0.4), inset 0 0 15px rgba(255, 42, 75, 0.2);
+            border-radius: 18px;
+            padding: 20px 28px;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 22px;
+            backdrop-filter: blur(12px);
+        }}
+
+        .jt-logo-emblem {{
+            background: linear-gradient(145deg, #1E50FF, #0B2580);
+            border: 3px solid #FFB800;
+            box-shadow: 0 0 15px #1E50FF, 0 0 30px rgba(255, 42, 75, 0.6);
+            border-radius: 14px;
+            width: 72px;
+            height: 72px;
+            min-width: 72px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 38px;
+            font-weight: 900;
+            color: #FFB800;
+            text-shadow: 2px 2px 4px #000000;
+            letter-spacing: -1px;
+        }}
+
+        .jt-header-title {{
+            font-size: 28px;
+            font-weight: 800;
+            background: linear-gradient(90deg, #FFFFFF 0%, #60A5FA 50%, #FFB800 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0;
+            line-height: 1.2;
+        }}
+
+        .jt-header-subtitle {{
+            font-size: 13px;
+            color: #FF2A4B;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-top: 4px;
+            text-shadow: 0 0 8px rgba(255, 42, 75, 0.5);
+        }}
+
+        /* Estilização das Abas (Tabs) */
+        .stTabs [data-baseweb="tab-list"] {{
+            gap: 10px;
+            background-color: rgba(10, 16, 32, 0.7);
+            padding: 8px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 184, 0, 0.3);
+        }}
+
+        .stTabs [data-baseweb="tab"] {{
+            height: 48px;
+            border-radius: 8px;
+            color: #94A3B8;
+            font-weight: 600;
+            background-color: transparent;
+            border: none;
+        }}
+
+        .stTabs [aria-selected="true"] {{
+            background: linear-gradient(135deg, #1E50FF 0%, #0B2580 100%) !important;
+            color: #FFB800 !important;
+            border: 1px solid #FFB800 !important;
+            box-shadow: 0 0 12px rgba(30, 80, 255, 0.6);
+        }}
+
+        /* Botões Customizados com gradiente JT */
+        .stButton > button {{
+            background: linear-gradient(90deg, #1E50FF 0%, #2B60FF 100%) !important;
+            color: #FFFFFF !important;
+            border: 1px solid #FFB800 !important;
+            border-radius: 8px !important;
+            font-weight: 700 !important;
+            box-shadow: 0 4px 12px rgba(30, 80, 255, 0.4) !important;
+            transition: all 0.3s ease !important;
+        }}
+
+        .stButton > button:hover {{
+            box-shadow: 0 0 20px rgba(255, 184, 0, 0.7), 0 0 12px rgba(30, 80, 255, 0.9) !important;
+            transform: translateY(-2px) !important;
+            border-color: #FFFFFF !important;
+        }}
+
+        /* Estilização de Cards e Expander */
+        [data-testid="stExpander"] {{
+            background: rgba(15, 23, 42, 0.75) !important;
+            border: 1px solid rgba(30, 80, 255, 0.4) !important;
+            border-radius: 12px !important;
+            backdrop-filter: blur(10px);
+        }}
+
+        /* Estilização dos Blocos de Métricas */
+        [data-testid="stMetricValue"] {{
+            color: #FFB800 !important;
+            font-weight: 800 !important;
+            text-shadow: 0 0 10px rgba(255, 184, 0, 0.4);
+        }}
+
+        [data-testid="stMetricLabel"] {{
+            color: #94A3B8 !important;
+            font-weight: 600 !important;
+        }}
+        </style>
+    """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # DADOS DOS ESTUDANTES EMBUTIDOS (FALLBACK)
@@ -398,294 +572,266 @@ DISCIPLINAS_MAP = {
     "Português (31-40)": range(31, 41),
 }
 
-
 # ---------------------------------------------------------
-# FUNÇÕES DE CARREGAMENTO E SALVAMENTO EM DISCO
+# PERSISTÊNCIA EM DISCO (JSON)
 # ---------------------------------------------------------
 def salvar_gabaritos_em_disco(gabaritos_dict):
-  """Grava os gabaritos em arquivo JSON no disco."""
-  try:
-    with open(ARQUIVO_GABARITOS_JSON, "w", encoding="utf-8") as f:
-      json.dump(gabaritos_dict, f, ensure_ascii=False, indent=2)
-  except Exception as e:
-    st.error(f"Erro ao salvar gabaritos no arquivo: {e}")
-
+    try:
+        with open(ARQUIVO_GABARITOS_JSON, "w", encoding="utf-8") as f:
+            json.dump(gabaritos_dict, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"Erro ao salvar gabaritos no arquivo: {e}")
 
 def carregar_gabaritos_do_disco():
-  """Lê os gabaritos salvos do arquivo JSON no disco."""
-  if os.path.exists(ARQUIVO_GABARITOS_JSON):
-    try:
-      with open(ARQUIVO_GABARITOS_JSON, "r", encoding="utf-8") as f:
-        dados_json = json.load(f)
+    if os.path.exists(ARQUIVO_GABARITOS_JSON):
+        try:
+            with open(ARQUIVO_GABARITOS_JSON, "r", encoding="utf-8") as f:
+                dados_json = json.load(f)
 
-      gabaritos_carregados = {}
-      for ano, gab in dados_json.items():
-        # Converte as chaves de string para inteiro
-        gabaritos_carregados[ano] = {int(q): str(r) for q, r in gab.items()}
-      return gabaritos_carregados
-    except Exception:
-      pass
+            gabaritos_carregados = {}
+            for ano, gab in dados_json.items():
+                gabaritos_carregados[ano] = {int(q): str(r) for q, r in gab.items()}
+            return gabaritos_carregados
+        except Exception:
+            pass
 
-  # Se o arquivo não existir ou for inválido, usa o padrão e grava no disco
-  salvar_gabaritos_em_disco(GABARITOS_MULTI_ANO_DEFAULT)
-  return {
-      "1º Ano": GABARITO_1ANO_BASE.copy(),
-      "2º Ano": GABARITO_2ANO_BASE.copy(),
-      "3º Ano": GABARITO_3ANO_BASE.copy(),
-  }
-
+    salvar_gabaritos_em_disco(GABARITOS_MULTI_ANO_DEFAULT)
+    return {
+        "1º Ano": GABARITO_1ANO_BASE.copy(),
+        "2º Ano": GABARITO_2ANO_BASE.copy(),
+        "3º Ano": GABARITO_3ANO_BASE.copy(),
+    }
 
 def salvar_historico_em_disco(historico_list):
-  """Grava o histórico de correções no disco."""
-  try:
-    with open(ARQUIVO_HISTORICO_JSON, "w", encoding="utf-8") as f:
-      json.dump(historico_list, f, ensure_ascii=False, indent=2)
-  except Exception as e:
-    st.error(f"Erro ao salvar histórico no arquivo: {e}")
-
+    try:
+        with open(ARQUIVO_HISTORICO_JSON, "w", encoding="utf-8") as f:
+            json.dump(historico_list, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"Erro ao salvar histórico no arquivo: {e}")
 
 def carregar_historico_do_disco():
-  """Lê o histórico de correções do disco."""
-  if os.path.exists(ARQUIVO_HISTORICO_JSON):
-    try:
-      with open(ARQUIVO_HISTORICO_JSON, "r", encoding="utf-8") as f:
-        return json.load(f)
-    except Exception:
-      pass
-  return []
-
+    if os.path.exists(ARQUIVO_HISTORICO_JSON):
+        try:
+            with open(ARQUIVO_HISTORICO_JSON, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
 
 def carregar_estudantes():
-  """Carrega o dicionário de turmas e alunos."""
-  if os.path.exists(ARQUIVO_ALUNOS_TXT):
-    try:
-      df = pd.read_csv(ARQUIVO_ALUNOS_TXT)
-    except Exception:
-      df = pd.read_csv(io.StringIO(DADOS_ALUNOS_EMBUTIDOS))
-  else:
-    df = pd.read_csv(io.StringIO(DADOS_ALUNOS_EMBUTIDOS))
+    if os.path.exists(ARQUIVO_ALUNOS_TXT):
+        try:
+            df = pd.read_csv(ARQUIVO_ALUNOS_TXT)
+        except Exception:
+            df = pd.read_csv(io.StringIO(DADOS_ALUNOS_EMBUTIDOS))
+    else:
+        df = pd.read_csv(io.StringIO(DADOS_ALUNOS_EMBUTIDOS))
 
-  turmas = {}
-  for turma, group in df.groupby("Turma", sort=False):
-    alunos = []
-    for _, row in group.iterrows():
-      num = (
-          str(int(row["Número"]))
-          if pd.notna(row["Número"]) and str(row["Número"]).strip() != ""
-          else ""
-      )
-      mat = (
-          str(int(row["Matrícula"]))
-          if pd.notna(row["Matrícula"]) and str(row["Matrícula"]).strip() != ""
-          else ""
-      )
-      nome = str(row["Nome"]).strip()
-      alunos.append({"numero": num, "matricula": mat, "nome": nome})
-    turmas[str(turma).strip()] = alunos
+    turmas = {}
+    for turma, group in df.groupby("Turma", sort=False):
+        alunos = []
+        for _, row in group.iterrows():
+            num = str(int(row["Número"])) if pd.notna(row["Número"]) and str(row["Número"]).strip() != "" else ""
+            mat = str(int(row["Matrícula"])) if pd.notna(row["Matrícula"]) and str(row["Matrícula"]).strip() != "" else ""
+            nome = str(row["Nome"]).strip()
+            alunos.append({"numero": num, "matricula": mat, "nome": nome})
+        turmas[str(turma).strip()] = alunos
 
-  return turmas
-
+    return turmas
 
 def obter_ano_da_turma(turma):
-  """Mapeia a turma para o Ano/Série."""
-  if "1º" in turma or "1" in turma:
+    if "1º" in turma or "1" in turma:
+        return "1º Ano"
+    elif "2º" in turma or "2" in turma:
+        return "2º Ano"
+    elif "3º" in turma or "3" in turma:
+        return "3º Ano"
     return "1º Ano"
-  elif "2º" in turma or "2" in turma:
-    return "2º Ano"
-  elif "3º" in turma or "3" in turma:
-    return "3º Ano"
-  return "1º Ano"
-
 
 def obter_disciplina(q):
-  for disc, q_range in DISCIPLINAS_MAP.items():
-    if q in q_range:
-      return disc
-  return "Desconhecida"
+    for disc, q_range in DISCIPLINAS_MAP.items():
+        if q in q_range:
+            return disc
+    return "Desconhecida"
 
-
-# Configuração da Página Streamlit
+# ---------------------------------------------------------
+# CONFIGURAÇÃO DA PÁGINA STREAMLIT
+# ---------------------------------------------------------
 st.set_page_config(
-    page_title="Corretor de Simulado Trimestral",
+    page_title="EREM Joaquim Távora - Corretor OMR",
     layout="wide",
     page_icon="📌",
 )
 
+# Aplica o tema visual JT
+aplicar_estilo_jt()
+
 # Inicializações da Sessão
 if "gabaritos_oficiais" not in st.session_state:
-  st.session_state["gabaritos_oficiais"] = carregar_gabaritos_do_disco()
+    st.session_state["gabaritos_oficiais"] = carregar_gabaritos_do_disco()
 
 if "historico" not in st.session_state:
-  st.session_state["historico"] = carregar_historico_do_disco()
+    st.session_state["historico"] = carregar_historico_do_disco()
 
 if "dados_turmas" not in st.session_state:
-  st.session_state["dados_turmas"] = carregar_estudantes()
+    st.session_state["dados_turmas"] = carregar_estudantes()
 
+# ---------------------------------------------------------
+# CABEÇALHO COM EMBLEMA JT
+# ---------------------------------------------------------
+st.markdown("""
+    <div class="jt-header-container">
+        <div class="jt-logo-emblem">JT</div>
+        <div>
+            <div class="jt-header-title">Corretor de Cartão-Resposta OMR</div>
+            <div class="jt-header-subtitle">EREM JOAQUIM TÁVORA • SIMULADO TRIMESTRAL</div>
+        </div>
+    </div>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
 # VISÃO COMPUTACIONAL (OMR POR ANCORAGEM E BLOCOS)
 # ---------------------------------------------------------
 def ordenar_pontos(pts):
-  rect = np.zeros((4, 2), dtype="float32")
-  s = pts.sum(axis=1)
-  rect[0] = pts[np.argmin(s)]  # Superior Esquerdo (TL)
-  rect[2] = pts[np.argmax(s)]  # Inferior Direito (BR)
-  diff = np.diff(pts, axis=1)
-  rect[1] = pts[np.argmin(diff)]  # Superior Direito (TR)
-  rect[3] = pts[np.argmax(diff)]  # Inferior Esquerdo (BL)
-  return rect
-
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]
+    rect[2] = pts[np.argmax(s)]
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]
+    rect[3] = pts[np.argmax(diff)]
+    return rect
 
 def retificar_grelha(imagem, largura=1200, altura=800):
-  """Localiza os 4 marcadores pretos de canto do cartão e aplica Perspective Warp."""
-  gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
-  blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
-  thresh_adapt = cv2.adaptiveThreshold(
-      blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 21, 10
-  )
-
-  cnts, _ = cv2.findContours(
-      thresh_adapt, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
-  )
-
-  ancoras = []
-  for c in cnts:
-    area = cv2.contourArea(c)
-    if 80 < area < 8000:
-      x, y, w, h = cv2.boundingRect(c)
-      aspect = float(w) / h
-      extent = area / float(w * h)
-      if 0.65 <= aspect <= 1.35 and extent > 0.6:
-        M = cv2.moments(c)
-        if M["m00"] != 0:
-          cx = int(M["m10"] / M["m00"])
-          cy = int(M["m01"] / M["m00"])
-          ancoras.append((cx, cy, area))
-
-  if len(ancoras) >= 4:
-    ancoras = sorted(ancoras, key=lambda p: p[2], reverse=True)[:12]
-    pts_cand = np.array([[p[0], p[1]] for p in ancoras], dtype="float32")
-
-    pts_origem = ordenar_pontos(pts_cand)
-    pts_destino = np.array(
-        [[0, 0], [largura - 1, 0], [largura - 1, altura - 1], [0, altura - 1]],
-        dtype="float32",
+    thresh_adapt = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 21, 10
     )
 
-    M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
-    return cv2.warpPerspective(imagem, M, (largura, altura))
+    cnts, _ = cv2.findContours(
+        thresh_adapt, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+    )
 
-  return cv2.resize(imagem, (largura, altura))
+    ancoras = []
+    for c in cnts:
+        area = cv2.contourArea(c)
+        if 80 < area < 8000:
+            x, y, w, h = cv2.boundingRect(c)
+            aspect = float(w) / h
+            extent = area / float(w * h)
+            if 0.65 <= aspect <= 1.35 and extent > 0.6:
+                M = cv2.moments(c)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    ancoras.append((cx, cy, area))
 
+    if len(ancoras) >= 4:
+        ancoras = sorted(ancoras, key=lambda p: p[2], reverse=True)[:12]
+        pts_cand = np.array([[p[0], p[1]] for p in ancoras], dtype="float32")
 
-def ler_respostas_40_questoes(
-    img_warped, gabarito_oficial=None, sensibilidade=10.0
-):
-  """Processa os blocos das 7 disciplinas no layout retificado (1200x800)."""
-  gray = cv2.cvtColor(img_warped, cv2.COLOR_BGR2GRAY)
-  img_annotated = img_warped.copy()
+        pts_origem = ordenar_pontos(pts_cand)
+        pts_destino = np.array(
+            [[0, 0], [largura - 1, 0], [largura - 1, altura - 1], [0, altura - 1]],
+            dtype="float32",
+        )
 
-  opcoes = ["A", "B", "C", "D", "E"]
-  respostas_aluno = {}
+        M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
+        return cv2.warpPerspective(imagem, M, (largura, altura))
 
-  largura_total = 1200
-  altura_total = 800
+    return cv2.resize(imagem, (largura, altura))
 
-  blocos = [
-      (1, 5, 0, 0.28, 0.54),  # Filosofia (Q01 - Q05)
-      (6, 10, 0, 0.62, 0.94),  # História (Q06 - Q10)
-      (11, 15, 1, 0.28, 0.54),  # Geografia (Q11 - Q15)
-      (16, 20, 1, 0.62, 0.94),  # Sociologia (Q16 - Q20)
-      (21, 24, 2, 0.28, 0.49),  # Educação Física (Q21 - Q24)
-      (25, 30, 2, 0.58, 0.94),  # Inglês (Q25 - Q30)
-      (31, 40, 3, 0.28, 0.94),  # Português (Q31 - Q40)
-  ]
+def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=10.0):
+    gray = cv2.cvtColor(img_warped, cv2.COLOR_BGR2GRAY)
+    img_annotated = img_warped.copy()
 
-  for q_start, q_end, col_idx, y_start_ratio, y_end_ratio in blocos:
-    num_questoes_bloco = q_end - q_start + 1
-    col_x_start = col_idx * (largura_total / 4.0)
-    col_w = largura_total / 4.0
+    opcoes = ["A", "B", "C", "D", "E"]
+    respostas_aluno = {}
 
-    b_start_x = col_x_start + col_w * 0.24
-    b_end_x = col_x_start + col_w * 0.92
-    b_step = (b_end_x - b_start_x) / 5.0
+    largura_total = 1200
+    altura_total = 800
 
-    y_top_bloco = altura_total * y_start_ratio
-    y_bot_bloco = altura_total * y_end_ratio
+    blocos = [
+        (1, 5, 0, 0.28, 0.54),
+        (6, 10, 0, 0.62, 0.94),
+        (11, 15, 1, 0.28, 0.54),
+        (16, 20, 1, 0.62, 0.94),
+        (21, 24, 2, 0.28, 0.49),
+        (25, 30, 2, 0.58, 0.94),
+        (31, 40, 3, 0.28, 0.94),
+    ]
 
-    for row in range(num_questoes_bloco):
-      num_questao = q_start + row
-      y_center = y_top_bloco + (row + 0.5) * (
-          (y_bot_bloco - y_top_bloco) / float(num_questoes_bloco)
-      )
+    for q_start, q_end, col_idx, y_start_ratio, y_end_ratio in blocos:
+        num_questoes_bloco = q_end - q_start + 1
+        col_x_start = col_idx * (largura_total / 4.0)
+        col_w = largura_total / 4.0
 
-      medias_cinza = []
-      coords_opcoes = []
+        b_start_x = col_x_start + col_w * 0.24
+        b_end_x = col_x_start + col_w * 0.92
+        b_step = (b_end_x - b_start_x) / 5.0
 
-      for opt_idx in range(5):
-        bx = b_start_x + (opt_idx + 0.5) * b_step
-        by = y_center
+        y_top_bloco = altura_total * y_start_ratio
+        y_bot_bloco = altura_total * y_end_ratio
 
-        r = 10
-        x1, x2 = int(bx - r), int(bx + r)
-        y1, y2 = int(by - r), int(by + r)
+        for row in range(num_questoes_bloco):
+            num_questao = q_start + row
+            y_center = y_top_bloco + (row + 0.5) * ((y_bot_bloco - y_top_bloco) / float(num_questoes_bloco))
 
-        roi = gray[
-            max(0, y1) : min(altura_total, y2),
-            max(0, x1) : min(largura_total, x2),
-        ]
-        media_tom = float(np.mean(roi)) if roi.size > 0 else 255.0
+            medias_cinza = []
+            coords_opcoes = []
 
-        medias_cinza.append(media_tom)
-        coords_opcoes.append((int(bx), int(by)))
+            for opt_idx in range(5):
+                bx = b_start_x + (opt_idx + 0.5) * b_step
+                by = y_center
 
-      min_idx = int(np.argmin(medias_cinza))
-      min_val = medias_cinza[min_idx]
+                r = 10
+                x1, x2 = int(bx - r), int(bx + r)
+                y1, y2 = int(by - r), int(by + r)
 
-      outras_medias = [m for i, m in enumerate(medias_cinza) if i != min_idx]
-      media_outras = np.mean(outras_medias) if outras_medias else 255.0
-      diferenca = media_outras - min_val
+                roi = gray[max(0, y1):min(altura_total, y2), max(0, x1):min(largura_total, x2)]
+                media_tom = float(np.mean(roi)) if roi.size > 0 else 255.0
 
-      if diferenca >= sensibilidade:
-        resp_detectada = opcoes[min_idx]
-        idx_marcado = min_idx
-      else:
-        resp_detectada = "Branco/Nulo"
-        idx_marcado = -1
+                medias_cinza.append(media_tom)
+                coords_opcoes.append((int(bx), int(by)))
 
-      respostas_aluno[num_questao] = resp_detectada
+            min_idx = int(np.argmin(medias_cinza))
+            min_val = medias_cinza[min_idx]
 
-      gab_correto = (
-          gabarito_oficial.get(num_questao) if gabarito_oficial else None
-      )
+            outras_medias = [m for i, m in enumerate(medias_cinza) if i != min_idx]
+            media_outras = np.mean(outras_medias) if outras_medias else 255.0
+            diferenca = media_outras - min_val
 
-      for opt_idx, (bx, by) in enumerate(coords_opcoes):
-        opcao_letra = opcoes[opt_idx]
+            if diferenca >= sensibilidade:
+                resp_detectada = opcoes[min_idx]
+                idx_marcado = min_idx
+            else:
+                resp_detectada = "Branco/Nulo"
+                idx_marcado = -1
 
-        if opt_idx == idx_marcado:
-          if gab_correto and opcao_letra == gab_correto:
-            cor = (0, 255, 0)  # Verde: Acerto
-          elif gab_correto and opcao_letra != gab_correto:
-            cor = (0, 0, 255)  # Vermelho: Erro
-          else:
-            cor = (0, 255, 255)  # Amarelo
-          cv2.circle(img_annotated, (bx, by), 10, cor, -1)
-        elif (
-            gab_correto
-            and opcao_letra == gab_correto
-            and resp_detectada != gab_correto
-        ):
-          cv2.circle(img_annotated, (bx, by), 10, (255, 0, 0), 2)
+            respostas_aluno[num_questao] = resp_detectada
+            gab_correto = gabarito_oficial.get(num_questao) if gabarito_oficial else None
 
-  return respostas_aluno, img_annotated
+            for opt_idx, (bx, by) in enumerate(coords_opcoes):
+                opcao_letra = opcoes[opt_idx]
 
+                if opt_idx == idx_marcado:
+                    if gab_correto and opcao_letra == gab_correto:
+                        cor = (0, 255, 0)
+                    elif gab_correto and opcao_letra != gab_correto:
+                        cor = (0, 0, 255)
+                    else:
+                        cor = (0, 255, 255)
+                    cv2.circle(img_annotated, (bx, by), 10, cor, -1)
+                elif gab_correto and opcao_letra == gab_correto and resp_detectada != gab_correto:
+                    cv2.circle(img_annotated, (bx, by), 10, (255, 0, 0), 2)
+
+    return respostas_aluno, img_annotated
 
 # ---------------------------------------------------------
-# INTERFACE DO USUÁRIO (STREAMLIT)
+# ABAS DE NAVEGAÇÃO
 # ---------------------------------------------------------
-st.title("📌 Corretor de Cartão-Resposta - Simulado Trimestral")
-
 tab_correcao, tab_gabarito, tab_estudantes, tab_relatorio = st.tabs([
     "📷 Corrigir Prova",
     "📝 Gabaritos Oficiais por Ano/Disciplina",
@@ -697,409 +843,346 @@ tab_correcao, tab_gabarito, tab_estudantes, tab_relatorio = st.tabs([
 # ABA 1: CORRIGIR PROVA
 # ---------------------------------------------------------
 with tab_correcao:
-  st.header("Captura ou Upload do Cartão de Respostas")
+    st.header("Captura ou Upload do Cartão de Respostas")
 
-  col_info, col_cam = st.columns([1, 2])
+    col_info, col_cam = st.columns([1, 2])
 
-  with col_info:
-    st.subheader("Identificação do Estudante")
+    with col_info:
+        st.subheader("Identificação do Estudante")
 
-    dados_turmas = st.session_state["dados_turmas"]
-    lista_turmas = list(dados_turmas.keys())
+        dados_turmas = st.session_state["dados_turmas"]
+        lista_turmas = list(dados_turmas.keys())
 
-    turma_selecionada = st.selectbox(
-        "Selecione a Turma:",
-        options=lista_turmas,
-        index=0 if lista_turmas else 0,
-    )
-
-    ano_estudante = obter_ano_da_turma(turma_selecionada)
-    alunos_da_turma = dados_turmas.get(turma_selecionada, [])
-
-    opcoes_alunos = []
-    for a in alunos_da_turma:
-      label = (
-          f"Nº {a['numero']} - {a['nome']}" if a["numero"] else f"{a['nome']}"
-      )
-      opcoes_alunos.append(label)
-
-    if opcoes_alunos:
-      aluno_idx = st.selectbox(
-          "Selecione o Aluno:",
-          range(len(opcoes_alunos)),
-          format_func=lambda i: opcoes_alunos[i],
-      )
-      aluno_obj = alunos_da_turma[aluno_idx]
-
-      nome_aluno = aluno_obj["nome"]
-      num_aluno = aluno_obj["numero"]
-      mat_aluno = aluno_obj["matricula"]
-    else:
-      nome_aluno = st.text_input("Nome do Aluno:")
-      num_aluno = ""
-      mat_aluno = ""
-
-    with st.expander("📄 Ficha do Aluno e Gabarito Vinculado", expanded=True):
-      st.markdown(f"**Nome:** {nome_aluno}")
-      st.markdown(
-          f"**Turma:** {turma_selecionada} | **Nº Chamada:** {num_aluno if num_aluno else 'N/A'}"
-      )
-      st.info(f"🎯 **Gabarito Oficial Aplicado:** {ano_estudante}")
-
-    st.divider()
-    st.subheader("Ajustes da Leitura OMR")
-    sensibilidade_omr = st.slider(
-        "Sensibilidade OMR (Contraste)",
-        min_value=3.0,
-        max_value=25.0,
-        value=8.0,
-        step=0.5,
-        help=(
-            "Reduza se o aluno usou caneta fraca/lápis; aumente se houver"
-            " sombras fortes."
-        ),
-    )
-
-  with col_cam:
-    origem = st.radio(
-        "Fonte da Imagem:",
-        ["Câmera", "Enviar Arquivo (Upload)"],
-        horizontal=True,
-    )
-    img_input = None
-
-    if origem == "Câmera":
-      foto = st.camera_input(
-          "Posicione o cartão de respostas de 40 questões na tela"
-      )
-      if foto:
-        img_input = foto
-    else:
-      upload_img = st.file_uploader(
-          "Envie uma foto do cartão de respostas",
-          type=["png", "jpg", "jpeg"],
-      )
-      if upload_img:
-        img_input = upload_img
-
-  if img_input:
-    if not nome_aluno:
-      st.warning("⚠️ Por favor, selecione ou informe o nome do aluno.")
-    else:
-      file_bytes = np.asarray(bytearray(img_input.read()), dtype=np.uint8)
-      img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-
-      # 1. Retificar Perspectiva
-      img_warped = retificar_grelha(img)
-
-      # 2. Obter Gabarito do Ano/Série do aluno
-      gabaritos_todos = st.session_state["gabaritos_oficiais"]
-      gabarito = gabaritos_todos.get(
-          ano_estudante, gabaritos_todos.get("1º Ano", {})
-      )
-
-      # 3. Ler Respostas (40 questões)
-      respostas_aluno, img_annotated = ler_respostas_40_questoes(
-          img_warped, gabarito, sensibilidade=sensibilidade_omr
-      )
-
-      # Contagem por disciplina
-      acertos_por_disc = {}
-      total_por_disc = {
-          "Filosofia (01-05)": 5,
-          "História (06-10)": 5,
-          "Geografia (11-15)": 5,
-          "Sociologia (16-20)": 5,
-          "Educação Física (21-24)": 4,
-          "Inglês (25-30)": 6,
-          "Português (31-40)": 10,
-      }
-
-      detalhes = []
-      total_acertos = 0
-
-      for q in range(1, 41):
-        resp = respostas_aluno.get(q, "Branco/Nulo")
-        gab = gabarito.get(q, "-")
-        correto = resp == gab
-        disc = obter_disciplina(q)
-
-        if disc not in acertos_por_disc:
-          acertos_por_disc[disc] = 0
-
-        if correto:
-          acertos_por_disc[disc] += 1
-          total_acertos += 1
-
-        detalhes.append({
-            "Questão": q,
-            "Disciplina": disc,
-            "Resposta Aluno": resp,
-            "Gabarito": gab,
-            "Status": "✅ Acertou" if correto else "❌ Errou",
-        })
-
-      nota = (total_acertos / 40.0) * 10.0
-
-      st.divider()
-      st.subheader("Resumo do Desempenho")
-
-      m1, m2, m3 = st.columns(3)
-      m1.metric("Total de Acertos", f"{total_acertos} / 40")
-      m2.metric("Nota Final", f"{nota:.2f} / 10.0")
-      m3.metric(
-          "Estudante / Turma",
-          f"{nome_aluno} ({turma_selecionada} - {ano_estudante})",
-      )
-
-      cols_disc = st.columns(len(acertos_por_disc))
-      for i, (d_nome, d_acertos) in enumerate(acertos_por_disc.items()):
-        tot = total_por_disc.get(d_nome, 5)
-        cols_disc[i].metric(d_nome.split(" ")[0], f"{d_acertos}/{tot}")
-
-      if st.button("💾 Salvar Resultado no Histórico", type="primary"):
-        registro = {
-            "Série": ano_estudante,
-            "Turma": turma_selecionada,
-            "Nº": num_aluno,
-            "Matrícula": mat_aluno,
-            "Aluno": nome_aluno,
-            "Total Acertos": total_acertos,
-            "Nota Final": round(nota, 2),
-        }
-        for d_nome, d_acertos in acertos_por_disc.items():
-          registro[d_nome.split(" ")[0]] = (
-              f"{d_acertos}/{total_por_disc.get(d_nome, 5)}"
-          )
-
-        st.session_state["historico"].append(registro)
-        salvar_historico_em_disco(st.session_state["historico"])
-        st.success(f"Resultado de {nome_aluno} salvo com sucesso!")
-
-      col_img, col_det = st.columns(2)
-      with col_img:
-        st.subheader("Imagem Processada (Overlay OMR)")
-        st.image(img_annotated, channels="BGR", use_container_width=True)
-        st.caption(
-            "🟢 Verde = Acerto | 🔴 Vermelho = Erro | 🔵 Azul = Gabarito Correto"
+        turma_selecionada = st.selectbox(
+            "Selecione a Turma:",
+            options=lista_turmas,
+            index=0 if lista_turmas else 0,
         )
 
-      with col_det:
-        st.subheader("Detalhamento por Questão")
-        st.dataframe(
-            pd.DataFrame(detalhes), height=380, use_container_width=True
+        ano_estudante = obter_ano_da_turma(turma_selecionada)
+        alunos_da_turma = dados_turmas.get(turma_selecionada, [])
+
+        opcoes_alunos = []
+        for a in alunos_da_turma:
+            label = f"Nº {a['numero']} - {a['nome']}" if a["numero"] else f"{a['nome']}"
+            opcoes_alunos.append(label)
+
+        if opcoes_alunos:
+            aluno_idx = st.selectbox(
+                "Selecione o Aluno:",
+                range(len(opcoes_alunos)),
+                format_func=lambda i: opcoes_alunos[i],
+            )
+            aluno_obj = alunos_da_turma[aluno_idx]
+
+            nome_aluno = aluno_obj["nome"]
+            num_aluno = aluno_obj["numero"]
+            mat_aluno = aluno_obj["matricula"]
+        else:
+            nome_aluno = st.text_input("Nome do Aluno:")
+            num_aluno = ""
+            mat_aluno = ""
+
+        with st.expander("📄 Ficha do Aluno e Gabarito Vinculado", expanded=True):
+            st.markdown(f"**Nome:** {nome_aluno}")
+            st.markdown(f"**Turma:** {turma_selecionada} | **Nº Chamada:** {num_aluno if num_aluno else 'N/A'}")
+            st.info(f"🎯 **Gabarito Oficial Aplicado:** {ano_estudante}")
+
+        st.divider()
+        st.subheader("Ajustes da Leitura OMR")
+        sensibilidade_omr = st.slider(
+            "Sensibilidade OMR (Contraste)",
+            min_value=3.0,
+            max_value=25.0,
+            value=8.0,
+            step=0.5,
+            help="Reduza se o aluno usou caneta fraca/lápis; aumente se houver sombras fortes."
         )
+
+    with col_cam:
+        origem = st.radio(
+            "Fonte da Imagem:",
+            ["Câmera", "Enviar Arquivo (Upload)"],
+            horizontal=True,
+        )
+        img_input = None
+
+        if origem == "Câmera":
+            foto = st.camera_input("Posicione o cartão de respostas de 40 questões na tela")
+            if foto:
+                img_input = foto
+        else:
+            upload_img = st.file_uploader(
+                "Envie uma foto do cartão de respostas",
+                type=["png", "jpg", "jpeg"],
+            )
+            if upload_img:
+                img_input = upload_img
+
+    if img_input:
+        if not nome_aluno:
+            st.warning("⚠️ Por favor, selecione ou informe o nome do aluno.")
+        else:
+            file_bytes = np.asarray(bytearray(img_input.read()), dtype=np.uint8)
+            img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+            img_warped = retificar_grelha(img)
+            gabaritos_todos = st.session_state["gabaritos_oficiais"]
+            gabarito = gabaritos_todos.get(ano_estudante, gabaritos_todos.get("1º Ano", {}))
+
+            respostas_aluno, img_annotated = ler_respostas_40_questoes(
+                img_warped, gabarito, sensibilidade=sensibilidade_omr
+            )
+
+            acertos_por_disc = {}
+            total_por_disc = {
+                "Filosofia (01-05)": 5, "História (06-10)": 5, "Geografia (11-15)": 5,
+                "Sociologia (16-20)": 5, "Educação Física (21-24)": 4,
+                "Inglês (25-30)": 6, "Português (31-40)": 10
+            }
+
+            detalhes = []
+            total_acertos = 0
+
+            for q in range(1, 41):
+                resp = respostas_aluno.get(q, "Branco/Nulo")
+                gab = gabarito.get(q, "-")
+                correto = (resp == gab)
+                disc = obter_disciplina(q)
+
+                if disc not in acertos_por_disc:
+                    acertos_por_disc[disc] = 0
+
+                if correto:
+                    acertos_por_disc[disc] += 1
+                    total_acertos += 1
+
+                detalhes.append({
+                    "Questão": q,
+                    "Disciplina": disc,
+                    "Resposta Aluno": resp,
+                    "Gabarito": gab,
+                    "Status": "✅ Acertou" if correto else "❌ Errou",
+                })
+
+            nota = (total_acertos / 40.0) * 10.0
+
+            st.divider()
+            st.subheader("Resumo do Desempenho")
+
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Total de Acertos", f"{total_acertos} / 40")
+            m2.metric("Nota Final", f"{nota:.2f} / 10.0")
+            m3.metric("Estudante / Turma", f"{nome_aluno} ({turma_selecionada} - {ano_estudante})")
+
+            cols_disc = st.columns(len(acertos_por_disc))
+            for i, (d_nome, d_acertos) in enumerate(acertos_por_disc.items()):
+                tot = total_por_disc.get(d_nome, 5)
+                cols_disc[i].metric(d_nome.split(" ")[0], f"{d_acertos}/{tot}")
+
+            if st.button("💾 Salvar Resultado no Histórico", type="primary"):
+                registro = {
+                    "Série": ano_estudante,
+                    "Turma": turma_selecionada,
+                    "Nº": num_aluno,
+                    "Matrícula": mat_aluno,
+                    "Aluno": nome_aluno,
+                    "Total Acertos": total_acertos,
+                    "Nota Final": round(nota, 2),
+                }
+                for d_nome, d_acertos in acertos_por_disc.items():
+                    registro[d_nome.split(" ")[0]] = f"{d_acertos}/{total_por_disc.get(d_nome, 5)}"
+
+                st.session_state["historico"].append(registro)
+                salvar_historico_em_disco(st.session_state["historico"])
+                st.success(f"Resultado de {nome_aluno} salvo com sucesso!")
+
+            col_img, col_det = st.columns(2)
+            with col_img:
+                st.subheader("Imagem Processada (Overlay OMR)")
+                st.image(img_annotated, channels="BGR", use_container_width=True)
+                st.caption("🟢 Verde = Acerto | 🔴 Vermelho = Erro | 🔵 Azul = Gabarito Correto")
+
+            with col_det:
+                st.subheader("Detalhamento por Questão")
+                st.dataframe(pd.DataFrame(detalhes), height=380, use_container_width=True)
 
 # ---------------------------------------------------------
 # ABA 2: GABARITOS OFICIAIS POR ANO E DISCIPLINA
 # ---------------------------------------------------------
 with tab_gabarito:
-  st.header("Cadastrar e Gerenciar Gabaritos Oficiais")
-  st.caption(
-      "Defina as respostas corretas por Ano/Série e por Disciplina. As"
-      " alterações são salvas automaticamente no disco."
-  )
+    st.header("Cadastrar e Gerenciar Gabaritos Oficiais")
+    st.caption("Defina as respostas corretas por Ano/Série e por Disciplina. Salvas em disco permanentemente.")
 
-  col_s1, col_s2 = st.columns(2)
-  with col_s1:
-    ano_gab_sel = st.selectbox(
-        "Selecione o Ano / Série para Editar:",
-        ["1º Ano", "2º Ano", "3º Ano"],
-        index=0,
-    )
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        ano_gab_sel = st.selectbox(
+            "Selecione o Ano / Série para Editar:",
+            ["1º Ano", "2º Ano", "3º Ano"],
+            index=0,
+        )
 
-  with col_s2:
-    disc_filtro = st.selectbox(
-        "Filtrar por Disciplina:",
-        ["Todas as Disciplinas"] + list(DISCIPLINAS_MAP.keys()),
-        index=0,
-    )
-
-  st.divider()
-  col_df_gab, col_act_gab = st.columns([2, 1])
-
-  gabarito_ano_atual = st.session_state["gabaritos_oficiais"].get(
-      ano_gab_sel, {}
-  )
-
-  with col_act_gab:
-    st.subheader("Ações do Gabarito")
-    if st.button(f"🔄 Restaurar Padrão do {ano_gab_sel}"):
-      st.session_state["gabaritos_oficiais"][ano_gab_sel] = (
-          GABARITOS_MULTI_ANO_DEFAULT[ano_gab_sel].copy()
-      )
-      salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
-      st.success(f"Gabarito padrão do {ano_gab_sel} restaurado e salvo!")
-      st.rerun()
-
-    if st.button("🔄 Restaurar Todos os Anos"):
-      st.session_state["gabaritos_oficiais"] = {
-          "1º Ano": GABARITO_1ANO_BASE.copy(),
-          "2º Ano": GABARITO_2ANO_BASE.copy(),
-          "3º Ano": GABARITO_3ANO_BASE.copy(),
-      }
-      salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
-      st.success("Todos os gabaritos foram restaurados para o padrão e salvos!")
-      st.rerun()
+    with col_s2:
+        disc_filtro = st.selectbox(
+            "Filtrar por Disciplina:",
+            ["Todas as Disciplinas"] + list(DISCIPLINAS_MAP.keys()),
+            index=0,
+        )
 
     st.divider()
-    st.subheader("Importar via Arquivo")
-    arquivo_gab_up = st.file_uploader(
-        f"Upload de Gabarito para o {ano_gab_sel} (CSV ou XLSX)",
-        type=["csv", "xlsx"],
-    )
-    if arquivo_gab_up:
-      try:
-        df_up_g = (
-            pd.read_csv(arquivo_gab_up)
-            if arquivo_gab_up.name.endswith(".csv")
-            else pd.read_excel(arquivo_gab_up)
+    col_df_gab, col_act_gab = st.columns([2, 1])
+
+    gabarito_ano_atual = st.session_state["gabaritos_oficiais"].get(ano_gab_sel, {})
+
+    with col_act_gab:
+        st.subheader("Ações do Gabarito")
+        if st.button(f"🔄 Restaurar Padrão do {ano_gab_sel}"):
+            st.session_state["gabaritos_oficiais"][ano_gab_sel] = GABARITOS_MULTI_ANO_DEFAULT[ano_gab_sel].copy()
+            salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
+            st.success(f"Gabarito padrão do {ano_gab_sel} restaurado e salvo!")
+            st.rerun()
+
+        if st.button("🔄 Restaurar Todos os Anos"):
+            st.session_state["gabaritos_oficiais"] = {
+                "1º Ano": GABARITO_1ANO_BASE.copy(),
+                "2º Ano": GABARITO_2ANO_BASE.copy(),
+                "3º Ano": GABARITO_3ANO_BASE.copy(),
+            }
+            salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
+            st.success("Todos os gabaritos foram restaurados para o padrão e salvos!")
+            st.rerun()
+
+        st.divider()
+        st.subheader("Importar via Arquivo")
+        arquivo_gab_up = st.file_uploader(
+            f"Upload de Gabarito para o {ano_gab_sel} (CSV ou XLSX)",
+            type=["csv", "xlsx"],
         )
-        if "Questão" in df_up_g.columns and "Gabarito" in df_up_g.columns:
-          nuevo_dic = dict(
-              zip(df_up_g["Questão"][:40], df_up_g["Gabarito"][:40])
-          )
-          st.session_state["gabaritos_oficiais"][ano_gab_sel].update(
-              nuevo_dic
-          )
-          salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
-          st.success(
-              f"Gabarito do {ano_gab_sel} atualizado e salvo no arquivo!"
-          )
-          st.rerun()
+        if arquivo_gab_up:
+            try:
+                df_up_g = pd.read_csv(arquivo_gab_up) if arquivo_gab_up.name.endswith(".csv") else pd.read_excel(arquivo_gab_up)
+                if "Questão" in df_up_g.columns and "Gabarito" in df_up_g.columns:
+                    nuevo_dic = dict(zip(df_up_g["Questão"][:40], df_up_g["Gabarito"][:40]))
+                    st.session_state["gabaritos_oficiais"][ano_gab_sel].update(nuevo_dic)
+                    salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
+                    st.success(f"Gabarito do {ano_gab_sel} atualizado e salvo no arquivo!")
+                    st.rerun()
+                else:
+                    st.error("O arquivo precisa conter as colunas 'Questão' e 'Gabarito'.")
+            except Exception as err_g:
+                st.error(f"Erro ao carregar arquivo: {err_g}")
+
+    with col_df_gab:
+        st.subheader(f"Tabela de Respostas ({ano_gab_sel})")
+
+        if disc_filtro == "Todas as Disciplinas":
+            questoes_exibidas = list(range(1, 41))
         else:
-          st.error("O arquivo precisa conter as colunas 'Questão' e 'Gabarito'.")
-      except Exception as err_g:
-        st.error(f"Erro ao carregar arquivo: {err_g}")
+            questoes_exibidas = list(DISCIPLINAS_MAP[disc_filtro])
 
-  with col_df_gab:
-    st.subheader(f"Tabela de Respostas ({ano_gab_sel})")
+        dados_tabela_gab = [
+            {
+                "Questão": q,
+                "Disciplina": obter_disciplina(q),
+                "Gabarito": gabarito_ano_atual.get(q, "A"),
+            }
+            for q in questoes_exibidas
+        ]
 
-    if disc_filtro == "Todas as Disciplinas":
-      questoes_exibidas = list(range(1, 41))
-    else:
-      questoes_exibidas = list(DISCIPLINAS_MAP[disc_filtro])
+        df_gab_editor = pd.DataFrame(dados_tabela_gab)
 
-    dados_tabela_gab = [
-        {
-            "Questão": q,
-            "Disciplina": obter_disciplina(q),
-            "Gabarito": gabarito_ano_atual.get(q, "A"),
-        }
-        for q in questoes_exibidas
-    ]
+        df_gab_modificado = st.data_editor(
+            df_gab_editor,
+            column_config={
+                "Questão": st.column_config.NumberColumn("Questão", disabled=True),
+                "Disciplina": st.column_config.TextColumn("Disciplina", disabled=True),
+                "Gabarito": st.column_config.SelectboxColumn(
+                    "Resposta Correta",
+                    options=["A", "B", "C", "D", "E"],
+                    required=True,
+                ),
+            },
+            hide_index=True,
+            height=450,
+            use_container_width=True,
+        )
 
-    df_gab_editor = pd.DataFrame(dados_tabela_gab)
+        if st.button("💾 Salvar Alterações na Tabela", type="primary"):
+            for _, row_g in df_gab_modificado.iterrows():
+                q_num = int(row_g["Questão"])
+                g_val = str(row_g["Gabarito"])
+                st.session_state["gabaritos_oficiais"][ano_gab_sel][q_num] = g_val
 
-    df_gab_modificado = st.data_editor(
-        df_gab_editor,
-        column_config={
-            "Questão": st.column_config.NumberColumn("Questão", disabled=True),
-            "Disciplina": st.column_config.TextColumn(
-                "Disciplina", disabled=True
-            ),
-            "Gabarito": st.column_config.SelectboxColumn(
-                "Resposta Correta",
-                options=["A", "B", "C", "D", "E"],
-                required=True,
-            ),
-        },
-        hide_index=True,
-        height=450,
-        use_container_width=True,
-    )
-
-    if st.button("💾 Salvar Alterações na Tabela", type="primary"):
-      for _, row_g in df_gab_modificado.iterrows():
-        q_num = int(row_g["Questão"])
-        g_val = str(row_g["Gabarito"])
-        st.session_state["gabaritos_oficiais"][ano_gab_sel][q_num] = g_val
-
-      # Gravação física no disco
-      salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
-      st.success(f"Gabarito do {ano_gab_sel} salvo permanentemente no disco!")
+            salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
+            st.success(f"Gabarito do {ano_gab_sel} salvo permanentemente no disco!")
 
 # ---------------------------------------------------------
 # ABA 3: GERENCIAR ESTUDANTES POR TURMA
 # ---------------------------------------------------------
 with tab_estudantes:
-  st.header("Lista de Estudantes Cadastrados por Turma")
+    st.header("Lista de Estudantes Cadastrados por Turma")
 
-  turmas_map = st.session_state["dados_turmas"]
-  t_sel = st.selectbox(
-      "Visualizar Turma:", list(turmas_map.keys()), key="sel_turma_view"
-  )
+    turmas_map = st.session_state["dados_turmas"]
+    t_sel = st.selectbox("Visualizar Turma:", list(turmas_map.keys()), key="sel_turma_view")
 
-  alunos_t = turmas_map.get(t_sel, [])
-  if alunos_t:
-    df_alunos_view = pd.DataFrame(alunos_t)
-    df_alunos_view.columns = ["Número", "Matrícula", "Nome do Estudante"]
-    st.dataframe(df_alunos_view, use_container_width=True, height=450)
-    st.caption(f"Total de {len(alunos_t)} estudantes matriculados na turma {t_sel}.")
-  else:
-    st.info("Nenhum estudante cadastrado nesta turma.")
+    alunos_t = turmas_map.get(t_sel, [])
+    if alunos_t:
+        df_alunos_view = pd.DataFrame(alunos_t)
+        df_alunos_view.columns = ["Número", "Matrícula", "Nome do Estudante"]
+        st.dataframe(df_alunos_view, use_container_width=True, height=450)
+        st.caption(f"Total de {len(alunos_t)} estudantes matriculados na turma {t_sel}.")
+    else:
+        st.info("Nenhum estudante cadastrado nesta turma.")
 
-  st.divider()
-  st.subheader("📤 Importar Nova Lista de Alunos (TXT ou CSV)")
-  arquivo_alunos_up = st.file_uploader(
-      "Upload da planilha de alunos (Colunas: Turma, Número, Matrícula, Nome)",
-      type=["txt", "csv"],
-  )
-  if arquivo_alunos_up:
-    try:
-      df_novos = pd.read_csv(arquivo_alunos_up)
-      if "Turma" in df_novos.columns and "Nome" in df_novos.columns:
-        novas_turmas = {}
-        for turma_k, group_k in df_novos.groupby("Turma", sort=False):
-          alunos_k = []
-          for _, r in group_k.iterrows():
-            num_k = (
-                str(int(r["Número"]))
-                if "Número" in r
-                and pd.notna(r["Número"])
-                and str(r["Número"]).strip() != ""
-                else ""
-            )
-            mat_k = (
-                str(int(r["Matrícula"]))
-                if "Matrícula" in r
-                and pd.notna(r["Matrícula"])
-                and str(r["Matrícula"]).strip() != ""
-                else ""
-            )
-            nome_k = str(r["Nome"]).strip()
-            alunos_k.append({"numero": num_k, "matricula": mat_k, "nome": nome_k})
-          novas_turmas[str(turma_k).strip()] = alunos_k
+    st.divider()
+    st.subheader("📤 Importar Nova Lista de Alunos (TXT ou CSV)")
+    arquivo_alunos_up = st.file_uploader(
+        "Upload da planilha de alunos (Colunas: Turma, Número, Matrícula, Nome)",
+        type=["txt", "csv"],
+    )
+    if arquivo_alunos_up:
+        try:
+            df_novos = pd.read_csv(arquivo_alunos_up)
+            if "Turma" in df_novos.columns and "Nome" in df_novos.columns:
+                novas_turmas = {}
+                for turma_k, group_k in df_novos.groupby("Turma", sort=False):
+                    alunos_k = []
+                    for _, r in group_k.iterrows():
+                        num_k = str(int(r["Número"])) if "Número" in r and pd.notna(r["Número"]) and str(r["Número"]).strip() != "" else ""
+                        mat_k = str(int(r["Matrícula"])) if "Matrícula" in r and pd.notna(r["Matrícula"]) and str(r["Matrícula"]).strip() != "" else ""
+                        nome_k = str(r["Nome"]).strip()
+                        alunos_k.append({"numero": num_k, "matricula": mat_k, "nome": nome_k})
+                    novas_turmas[str(turma_k).strip()] = alunos_k
 
-        st.session_state["dados_turmas"] = novas_turmas
-        st.success("Lista de estudantes atualizada com sucesso!")
-        st.rerun()
-      else:
-        st.error("O arquivo deve conter pelo menos as colunas 'Turma' e 'Nome'.")
-    except Exception as err:
-      st.error(f"Erro ao importar arquivo: {err}")
+                st.session_state["dados_turmas"] = novas_turmas
+                st.success("Lista de estudantes atualizada com sucesso!")
+                st.rerun()
+            else:
+                st.error("O arquivo deve conter pelo menos as colunas 'Turma' e 'Nome'.")
+        except Exception as err:
+            st.error(f"Erro ao importar arquivo: {err}")
 
 # ---------------------------------------------------------
 # ABA 4: RESULTADOS DA TURMA
 # ---------------------------------------------------------
 with tab_relatorio:
-  st.header("Relatório Geral das Correções")
+    st.header("Relatório Geral das Correções")
 
-  if len(st.session_state["historico"]) == 0:
-    st.info("Nenhum cartão foi corrigido e salvo ainda.")
-  else:
-    df_hist = pd.DataFrame(st.session_state["historico"])
-    st.dataframe(df_hist, use_container_width=True)
+    if len(st.session_state["historico"]) == 0:
+        st.info("Nenhum cartão foi corrigido e salvo ainda.")
+    else:
+        df_hist = pd.DataFrame(st.session_state["historico"])
+        st.dataframe(df_hist, use_container_width=True)
 
-    csv = df_hist.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label="📥 Baixar Planilha de Notas (CSV)",
-        data=csv,
-        file_name="resultados_simulado_trimestral.csv",
-        mime="text/csv",
-    )
+        csv = df_hist.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Baixar Planilha de Notas (CSV)",
+            data=csv,
+            file_name="resultados_simulado_trimestral.csv",
+            mime="text/csv",
+        )
 
-    if st.button("🗑️ Limpar Histórico"):
-      st.session_state["historico"] = []
-      salvar_historico_em_disco([])
-      st.rerun()
+        if st.button("🗑️ Limpar Histórico"):
+            st.session_state["historico"] = []
+            salvar_historico_em_disco([])
+            st.rerun()
