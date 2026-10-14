@@ -1,9 +1,17 @@
 import io
+import json
 import os
 import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+# ---------------------------------------------------------
+# CONSTANTES E ARQUIVOS DE PERSISTÊNCIA EM DISCO
+# ---------------------------------------------------------
+ARQUIVO_GABARITOS_JSON = "gabaritos_oficiais.json"
+ARQUIVO_HISTORICO_JSON = "historico_correcoes.json"
+ARQUIVO_ALUNOS_TXT = "todososalunosporturma.txt"
 
 # ---------------------------------------------------------
 # DADOS DOS ESTUDANTES EMBUTIDOS (FALLBACK)
@@ -350,13 +358,108 @@ DADOS_ALUNOS_EMBUTIDOS = """Turma,Número,Matrícula,Nome
 3º C,36,,YTALO MENDES DA SILVA
 3º C,37,,MARIA JULIA DA SILVA ARRUDA"""
 
+# ---------------------------------------------------------
+# GABARITOS BASE DE CADA ANO/SÉRIE
+# ---------------------------------------------------------
+GABARITO_1ANO_BASE = {
+    1: "A", 2: "B", 3: "C", 4: "D", 5: "E", 6: "A", 7: "B", 8: "C", 9: "D", 10: "E",
+    11: "A", 12: "B", 13: "C", 14: "D", 15: "E", 16: "A", 17: "B", 18: "C", 19: "D", 20: "E",
+    21: "A", 22: "B", 23: "C", 24: "D", 25: "A", 26: "B", 27: "C", 28: "D", 29: "E", 30: "A",
+    31: "A", 32: "B", 33: "C", 34: "D", 35: "E", 36: "A", 37: "B", 38: "C", 39: "D", 40: "E"
+}
+
+GABARITO_2ANO_BASE = {
+    1: "B", 2: "C", 3: "D", 4: "E", 5: "A", 6: "B", 7: "C", 8: "D", 9: "E", 10: "A",
+    11: "B", 12: "C", 13: "D", 14: "E", 15: "A", 16: "B", 17: "C", 18: "D", 19: "E", 20: "A",
+    21: "B", 22: "C", 23: "D", 24: "E", 25: "B", 26: "C", 27: "D", 28: "E", 29: "A", 30: "B",
+    31: "B", 32: "C", 33: "D", 34: "E", 35: "A", 36: "B", 37: "C", 38: "D", 39: "E", 40: "A"
+}
+
+GABARITO_3ANO_BASE = {
+    1: "C", 2: "D", 3: "E", 4: "A", 5: "B", 6: "C", 7: "D", 8: "E", 9: "A", 10: "B",
+    11: "C", 12: "D", 13: "E", 14: "A", 15: "B", 16: "C", 17: "D", 18: "E", 19: "A", 20: "B",
+    21: "C", 22: "D", 23: "E", 24: "A", 25: "C", 26: "D", 27: "E", 28: "A", 29: "B", 30: "C",
+    31: "C", 32: "D", 33: "E", 34: "A", 35: "B", 36: "C", 37: "D", 38: "E", 39: "A", 40: "B"
+}
+
+GABARITOS_MULTI_ANO_DEFAULT = {
+    "1º Ano": GABARITO_1ANO_BASE.copy(),
+    "2º Ano": GABARITO_2ANO_BASE.copy(),
+    "3º Ano": GABARITO_3ANO_BASE.copy(),
+}
+
+DISCIPLINAS_MAP = {
+    "Filosofia (01-05)": range(1, 6),
+    "História (06-10)": range(6, 11),
+    "Geografia (11-15)": range(11, 16),
+    "Sociologia (16-20)": range(16, 21),
+    "Educação Física (21-24)": range(21, 25),
+    "Inglês (25-30)": range(25, 31),
+    "Português (31-40)": range(31, 41),
+}
+
+
+# ---------------------------------------------------------
+# FUNÇÕES DE CARREGAMENTO E SALVAMENTO EM DISCO
+# ---------------------------------------------------------
+def salvar_gabaritos_em_disco(gabaritos_dict):
+  """Grava os gabaritos em arquivo JSON no disco."""
+  try:
+    with open(ARQUIVO_GABARITOS_JSON, "w", encoding="utf-8") as f:
+      json.dump(gabaritos_dict, f, ensure_ascii=False, indent=2)
+  except Exception as e:
+    st.error(f"Erro ao salvar gabaritos no arquivo: {e}")
+
+
+def carregar_gabaritos_do_disco():
+  """Lê os gabaritos salvos do arquivo JSON no disco."""
+  if os.path.exists(ARQUIVO_GABARITOS_JSON):
+    try:
+      with open(ARQUIVO_GABARITOS_JSON, "r", encoding="utf-8") as f:
+        dados_json = json.load(f)
+
+      gabaritos_carregados = {}
+      for ano, gab in dados_json.items():
+        # Converte as chaves de string para inteiro
+        gabaritos_carregados[ano] = {int(q): str(r) for q, r in gab.items()}
+      return gabaritos_carregados
+    except Exception:
+      pass
+
+  # Se o arquivo não existir ou for inválido, usa o padrão e grava no disco
+  salvar_gabaritos_em_disco(GABARITOS_MULTI_ANO_DEFAULT)
+  return {
+      "1º Ano": GABARITO_1ANO_BASE.copy(),
+      "2º Ano": GABARITO_2ANO_BASE.copy(),
+      "3º Ano": GABARITO_3ANO_BASE.copy(),
+  }
+
+
+def salvar_historico_em_disco(historico_list):
+  """Grava o histórico de correções no disco."""
+  try:
+    with open(ARQUIVO_HISTORICO_JSON, "w", encoding="utf-8") as f:
+      json.dump(historico_list, f, ensure_ascii=False, indent=2)
+  except Exception as e:
+    st.error(f"Erro ao salvar histórico no arquivo: {e}")
+
+
+def carregar_historico_do_disco():
+  """Lê o histórico de correções do disco."""
+  if os.path.exists(ARQUIVO_HISTORICO_JSON):
+    try:
+      with open(ARQUIVO_HISTORICO_JSON, "r", encoding="utf-8") as f:
+        return json.load(f)
+    except Exception:
+      pass
+  return []
+
 
 def carregar_estudantes():
-  """Carrega o dicionário de turmas e alunos a partir do TXT local ou fallback."""
-  caminho_txt = "todososalunosporturma.txt"
-  if os.path.exists(caminho_txt):
+  """Carrega o dicionário de turmas e alunos."""
+  if os.path.exists(ARQUIVO_ALUNOS_TXT):
     try:
-      df = pd.read_csv(caminho_txt)
+      df = pd.read_csv(ARQUIVO_ALUNOS_TXT)
     except Exception:
       df = pd.read_csv(io.StringIO(DADOS_ALUNOS_EMBUTIDOS))
   else:
@@ -384,7 +487,7 @@ def carregar_estudantes():
 
 
 def obter_ano_da_turma(turma):
-  """Mapeia o nome da turma para o Ano/Série correspondente."""
+  """Mapeia a turma para o Ano/Série."""
   if "1º" in turma or "1" in turma:
     return "1º Ano"
   elif "2º" in turma or "2" in turma:
@@ -394,143 +497,12 @@ def obter_ano_da_turma(turma):
   return "1º Ano"
 
 
-# ---------------------------------------------------------
-# GABARITOS OFICIAIS PADRÃO POR ANO / SÉRIE (40 QUESTÕES)
-# ---------------------------------------------------------
-GABARITO_1ANO_BASE = {
-    1: "A",
-    2: "B",
-    3: "C",
-    4: "D",
-    5: "E",
-    6: "A",
-    7: "B",
-    8: "C",
-    9: "D",
-    10: "E",
-    11: "A",
-    12: "B",
-    13: "C",
-    14: "D",
-    15: "E",
-    16: "A",
-    17: "B",
-    18: "C",
-    19: "D",
-    20: "E",
-    21: "A",
-    22: "B",
-    23: "C",
-    24: "D",
-    25: "A",
-    26: "B",
-    27: "C",
-    28: "D",
-    29: "E",
-    30: "A",
-    31: "A",
-    32: "B",
-    33: "C",
-    34: "D",
-    35: "E",
-    36: "A",
-    37: "B",
-    38: "C",
-    39: "D",
-    40: "E",
-}
+def obter_disciplina(q):
+  for disc, q_range in DISCIPLINAS_MAP.items():
+    if q in q_range:
+      return disc
+  return "Desconhecida"
 
-GABARITO_2ANO_BASE = {
-    1: "B",
-    2: "C",
-    3: "D",
-    4: "E",
-    5: "A",
-    6: "B",
-    7: "C",
-    8: "D",
-    9: "E",
-    10: "A",
-    11: "B",
-    12: "C",
-    13: "D",
-    14: "E",
-    15: "A",
-    16: "B",
-    17: "C",
-    18: "D",
-    19: "E",
-    20: "A",
-    21: "B",
-    22: "C",
-    23: "D",
-    24: "E",
-    25: "B",
-    26: "C",
-    27: "D",
-    28: "E",
-    29: "A",
-    30: "B",
-    31: "B",
-    32: "C",
-    33: "D",
-    34: "E",
-    35: "A",
-    36: "B",
-    37: "C",
-    38: "D",
-    39: "E",
-    40: "A",
-}
-
-GABARITO_3ANO_BASE = {
-    1: "C",
-    2: "D",
-    3: "E",
-    4: "A",
-    5: "B",
-    6: "C",
-    7: "D",
-    8: "E",
-    9: "A",
-    10: "B",
-    11: "C",
-    12: "D",
-    13: "E",
-    14: "A",
-    15: "B",
-    16: "C",
-    17: "D",
-    18: "E",
-    19: "A",
-    20: "B",
-    21: "C",
-    22: "D",
-    23: "E",
-    24: "A",
-    25: "C",
-    26: "D",
-    27: "E",
-    28: "A",
-    29: "B",
-    30: "C",
-    31: "C",
-    32: "D",
-    33: "E",
-    34: "A",
-    35: "B",
-    36: "C",
-    37: "D",
-    38: "E",
-    39: "A",
-    40: "B",
-}
-
-GABARITOS_MULTI_ANO_DEFAULT = {
-    "1º Ano": GABARITO_1ANO_BASE.copy(),
-    "2º Ano": GABARITO_2ANO_BASE.copy(),
-    "3º Ano": GABARITO_3ANO_BASE.copy(),
-}
 
 # Configuração da Página Streamlit
 st.set_page_config(
@@ -539,36 +511,15 @@ st.set_page_config(
     page_icon="📌",
 )
 
-# Inicializações na Sessão
+# Inicializações da Sessão
 if "gabaritos_oficiais" not in st.session_state:
-  st.session_state["gabaritos_oficiais"] = {
-      "1º Ano": GABARITO_1ANO_BASE.copy(),
-      "2º Ano": GABARITO_2ANO_BASE.copy(),
-      "3º Ano": GABARITO_3ANO_BASE.copy(),
-  }
+  st.session_state["gabaritos_oficiais"] = carregar_gabaritos_do_disco()
 
 if "historico" not in st.session_state:
-  st.session_state["historico"] = []
+  st.session_state["historico"] = carregar_historico_do_disco()
 
 if "dados_turmas" not in st.session_state:
   st.session_state["dados_turmas"] = carregar_estudantes()
-
-DISCIPLINAS_MAP = {
-    "Filosofia (01-05)": range(1, 6),
-    "História (06-10)": range(6, 11),
-    "Geografia (11-15)": range(11, 16),
-    "Sociologia (16-20)": range(16, 21),
-    "Educação Física (21-24)": range(21, 25),
-    "Inglês (25-30)": range(25, 31),
-    "Português (31-40)": range(31, 41),
-}
-
-
-def obter_disciplina(q):
-  for disc, q_range in DISCIPLINAS_MAP.items():
-    if q in q_range:
-      return disc
-  return "Desconhecida"
 
 
 # ---------------------------------------------------------
@@ -631,7 +582,7 @@ def retificar_grelha(imagem, largura=1200, altura=800):
 def ler_respostas_40_questoes(
     img_warped, gabarito_oficial=None, sensibilidade=10.0
 ):
-  """Processa os blocos específicos das 7 disciplinas no layout retificado (1200x800)."""
+  """Processa os blocos das 7 disciplinas no layout retificado (1200x800)."""
   gray = cv2.cvtColor(img_warped, cv2.COLOR_BGR2GRAY)
   img_annotated = img_warped.copy()
 
@@ -641,7 +592,6 @@ def ler_respostas_40_questoes(
   largura_total = 1200
   altura_total = 800
 
-  # Definição dos blocos de disciplinas
   blocos = [
       (1, 5, 0, 0.28, 0.54),  # Filosofia (Q01 - Q05)
       (6, 10, 0, 0.62, 0.94),  # História (Q06 - Q10)
@@ -764,7 +714,6 @@ with tab_correcao:
     )
 
     ano_estudante = obter_ano_da_turma(turma_selecionada)
-
     alunos_da_turma = dados_turmas.get(turma_selecionada, [])
 
     opcoes_alunos = []
@@ -790,7 +739,6 @@ with tab_correcao:
       num_aluno = ""
       mat_aluno = ""
 
-    # Exibe ficha rápida do aluno selecionado
     with st.expander("📄 Ficha do Aluno e Gabarito Vinculado", expanded=True):
       st.markdown(f"**Nome:** {nome_aluno}")
       st.markdown(
@@ -896,7 +844,6 @@ with tab_correcao:
       st.divider()
       st.subheader("Resumo do Desempenho")
 
-      # Métrica Geral
       m1, m2, m3 = st.columns(3)
       m1.metric("Total de Acertos", f"{total_acertos} / 40")
       m2.metric("Nota Final", f"{nota:.2f} / 10.0")
@@ -905,7 +852,6 @@ with tab_correcao:
           f"{nome_aluno} ({turma_selecionada} - {ano_estudante})",
       )
 
-      # Métricas por Disciplina
       cols_disc = st.columns(len(acertos_por_disc))
       for i, (d_nome, d_acertos) in enumerate(acertos_por_disc.items()):
         tot = total_por_disc.get(d_nome, 5)
@@ -927,6 +873,7 @@ with tab_correcao:
           )
 
         st.session_state["historico"].append(registro)
+        salvar_historico_em_disco(st.session_state["historico"])
         st.success(f"Resultado de {nome_aluno} salvo com sucesso!")
 
       col_img, col_det = st.columns(2)
@@ -949,11 +896,10 @@ with tab_correcao:
 with tab_gabarito:
   st.header("Cadastrar e Gerenciar Gabaritos Oficiais")
   st.caption(
-      "Defina as respostas corretas por Ano/Série e por Disciplina para cada"
-      " simulado."
+      "Defina as respostas corretas por Ano/Série e por Disciplina. As"
+      " alterações são salvas automaticamente no disco."
   )
 
-  # Seleção de Ano/Série e Disciplina
   col_s1, col_s2 = st.columns(2)
   with col_s1:
     ano_gab_sel = st.selectbox(
@@ -982,7 +928,8 @@ with tab_gabarito:
       st.session_state["gabaritos_oficiais"][ano_gab_sel] = (
           GABARITOS_MULTI_ANO_DEFAULT[ano_gab_sel].copy()
       )
-      st.success(f"Gabarito padrão do {ano_gab_sel} restaurado!")
+      salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
+      st.success(f"Gabarito padrão do {ano_gab_sel} restaurado e salvo!")
       st.rerun()
 
     if st.button("🔄 Restaurar Todos os Anos"):
@@ -991,7 +938,8 @@ with tab_gabarito:
           "2º Ano": GABARITO_2ANO_BASE.copy(),
           "3º Ano": GABARITO_3ANO_BASE.copy(),
       }
-      st.success("Todos os gabaritos foram restaurados para o padrão!")
+      salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
+      st.success("Todos os gabaritos foram restaurados para o padrão e salvos!")
       st.rerun()
 
     st.divider()
@@ -1014,7 +962,10 @@ with tab_gabarito:
           st.session_state["gabaritos_oficiais"][ano_gab_sel].update(
               nuevo_dic
           )
-          st.success(f"Gabarito do {ano_gab_sel} atualizado via arquivo!")
+          salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
+          st.success(
+              f"Gabarito do {ano_gab_sel} atualizado e salvo no arquivo!"
+          )
           st.rerun()
         else:
           st.error("O arquivo precisa conter as colunas 'Questão' e 'Gabarito'.")
@@ -1024,7 +975,6 @@ with tab_gabarito:
   with col_df_gab:
     st.subheader(f"Tabela de Respostas ({ano_gab_sel})")
 
-    # Monta lista de questões conforme o filtro de disciplina
     if disc_filtro == "Todas as Disciplinas":
       questoes_exibidas = list(range(1, 41))
     else:
@@ -1064,7 +1014,10 @@ with tab_gabarito:
         q_num = int(row_g["Questão"])
         g_val = str(row_g["Gabarito"])
         st.session_state["gabaritos_oficiais"][ano_gab_sel][q_num] = g_val
-      st.success(f"Gabarito do {ano_gab_sel} salvo com sucesso!")
+
+      # Gravação física no disco
+      salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
+      st.success(f"Gabarito do {ano_gab_sel} salvo permanentemente no disco!")
 
 # ---------------------------------------------------------
 # ABA 3: GERENCIAR ESTUDANTES POR TURMA
@@ -1148,4 +1101,5 @@ with tab_relatorio:
 
     if st.button("🗑️ Limpar Histórico"):
       st.session_state["historico"] = []
+      salvar_historico_em_disco([])
       st.rerun()
