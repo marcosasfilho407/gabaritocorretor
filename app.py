@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 # ---------------------------------------------------------
-# ARQUIVOS DE PERSISTÊNCIA EM DISCO
+# CONSTANTES E ARQUIVOS DE PERSISTÊNCIA EM DISCO
 # ---------------------------------------------------------
 ARQUIVO_GABARITOS_JSON = "gabaritos_oficiais.json"
 ARQUIVO_HISTORICO_JSON = "historico_correcoes.json"
@@ -690,61 +690,78 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# VISÃO COMPUTACIONAL (OMR POR ANCORAGEM E BLOCOS)
+# VISÃO COMPUTACIONAL (DETECCÃO ESPACIAL DE ÂNCORAS)
 # ---------------------------------------------------------
-def ordenar_pontos(pts):
-    rect = np.zeros((4, 2), dtype="float32")
-    s = pts.sum(axis=1)
-    rect[0] = pts[np.argmin(s)]
-    rect[2] = pts[np.argmax(s)]
-    diff = np.diff(pts, axis=1)
-    rect[1] = pts[np.argmin(diff)]
-    rect[3] = pts[np.argmax(diff)]
-    return rect
-
-def retificar_grelha(imagem, largura=1200, altura=800):
+def encontrar_4_ancoras_espaciais(imagem):
+    """
+    Localiza de forma robusta os 4 quadrados pretos nos cantos da folha,
+    mesmo em enquadramentos pequenos ou fotos aproximadas da câmera.
+    """
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    
+    # Melhora o contraste contra sombras da câmera usando CLAHE
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    gray_enhanced = clahe.apply(gray)
+    blurred = cv2.GaussianBlur(gray_enhanced, (5, 5), 0)
 
-    thresh_adapt = cv2.adaptiveThreshold(
-        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 21, 10
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 25, 8
     )
 
-    cnts, _ = cv2.findContours(
-        thresh_adapt, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
-    )
+    cnts, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    h_img, w_img = imagem.shape[:2]
 
-    ancoras = []
+    candidatos = []
     for c in cnts:
         area = cv2.contourArea(c)
-        if 80 < area < 8000:
+        if 40 < area < (w_img * h_img * 0.05):
             x, y, w, h = cv2.boundingRect(c)
             aspect = float(w) / h
             extent = area / float(w * h)
-            if 0.65 <= aspect <= 1.35 and extent > 0.6:
-                M = cv2.moments(c)
-                if M["m00"] != 0:
-                    cx = int(M["m10"] / M["m00"])
-                    cy = int(M["m01"] / M["m00"])
-                    ancoras.append((cx, cy, area))
+            if 0.60 <= aspect <= 1.40 and extent > 0.55:
+                cx = int(x + w / 2.0)
+                cy = int(y + h / 2.0)
+                candidatos.append((cx, cy, area, x, y, w, h))
 
-    if len(ancoras) >= 4:
-        ancoras = sorted(ancoras, key=lambda p: p[2], reverse=True)[:12]
-        pts_cand = np.array([[p[0], p[1]] for p in ancoras], dtype="float32")
+    if len(candidatos) < 4:
+        return None
 
-        pts_origem = ordenar_pontos(pts_cand)
+    # Seleciona as 4 extremidades espaciais mais distantes (TL, TR, BR, BL)
+    tl = min(candidatos, key=lambda c: c[0] + c[1])
+    tr = max(candidatos, key=lambda c: c[0] - c[1])
+    br = max(candidatos, key=lambda c: c[0] + c[1])
+    bl = min(candidatos, key=lambda c: c[0] - c[1])
+
+    return [tl, tr, br, bl]
+
+def retificar_grelha(imagem, largura=1200, altura=800):
+    """Aplica perspectiva alinhada aos 4 cantos reais do cartão-resposta."""
+    ancoras = encontrar_4_ancoras_espaciais(imagem)
+
+    if ancoras and len(ancoras) == 4:
+        pts_origem = np.array([[p[0], p[1]] for p in ancoras], dtype="float32")
         pts_destino = np.array(
             [[0, 0], [largura - 1, 0], [largura - 1, altura - 1], [0, altura - 1]],
             dtype="float32",
         )
-
         M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
         return cv2.warpPerspective(imagem, M, (largura, altura))
 
     return cv2.resize(imagem, (largura, altura))
 
-def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=10.0):
+# ---------------------------------------------------------
+# LEITURA OMR ADAPTATIVA POR DENSIDADE DE PIXELS
+# ---------------------------------------------------------
+def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=8.0):
+    """
+    Mapeamento calibrado dos 7 blocos de disciplinas para resolução 1200x800.
+    """
     gray = cv2.cvtColor(img_warped, cv2.COLOR_BGR2GRAY)
+    
+    # Aplica filtro para uniformizar o fundo antes da medição
+    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
+    gray_proc = clahe.apply(gray)
+    
     img_annotated = img_warped.copy()
 
     opcoes = ["A", "B", "C", "D", "E"]
@@ -753,14 +770,15 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=1
     largura_total = 1200
     altura_total = 800
 
+    # Definição precisa dos blocos [q_start, q_end, col_idx, y_start_ratio, y_end_ratio]
     blocos = [
-        (1, 5, 0, 0.28, 0.54),
-        (6, 10, 0, 0.62, 0.94),
-        (11, 15, 1, 0.28, 0.54),
-        (16, 20, 1, 0.62, 0.94),
-        (21, 24, 2, 0.28, 0.49),
-        (25, 30, 2, 0.58, 0.94),
-        (31, 40, 3, 0.28, 0.94),
+        (1, 5, 0, 0.285, 0.535),    # Filosofia (Q01 - Q05)
+        (6, 10, 0, 0.625, 0.935),   # História (Q06 - Q10)
+        (11, 15, 1, 0.285, 0.535),  # Geografia (Q11 - Q15)
+        (16, 20, 1, 0.625, 0.935),  # Sociologia (Q16 - Q20)
+        (21, 24, 2, 0.285, 0.485),  # Ed. Física (Q21 - Q24)
+        (25, 30, 2, 0.585, 0.935),  # Inglês (Q25 - Q30)
+        (31, 40, 3, 0.285, 0.935),  # Português (Q31 - Q40)
     ]
 
     for q_start, q_end, col_idx, y_start_ratio, y_end_ratio in blocos:
@@ -768,8 +786,8 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=1
         col_x_start = col_idx * (largura_total / 4.0)
         col_w = largura_total / 4.0
 
-        b_start_x = col_x_start + col_w * 0.24
-        b_end_x = col_x_start + col_w * 0.92
+        b_start_x = col_x_start + col_w * 0.25
+        b_end_x = col_x_start + col_w * 0.93
         b_step = (b_end_x - b_start_x) / 5.0
 
         y_top_bloco = altura_total * y_start_ratio
@@ -786,11 +804,11 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=1
                 bx = b_start_x + (opt_idx + 0.5) * b_step
                 by = y_center
 
-                r = 10
+                r = 11
                 x1, x2 = int(bx - r), int(bx + r)
                 y1, y2 = int(by - r), int(by + r)
 
-                roi = gray[max(0, y1):min(altura_total, y2), max(0, x1):min(largura_total, x2)]
+                roi = gray_proc[max(0, y1):min(altura_total, y2), max(0, x1):min(largura_total, x2)]
                 media_tom = float(np.mean(roi)) if roi.size > 0 else 255.0
 
                 medias_cinza.append(media_tom)
@@ -818,19 +836,19 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=1
 
                 if opt_idx == idx_marcado:
                     if gab_correto and opcao_letra == gab_correto:
-                        cor = (0, 255, 0)
+                        cor = (0, 255, 0)       # Verde: Acerto
                     elif gab_correto and opcao_letra != gab_correto:
-                        cor = (0, 0, 255)
+                        cor = (0, 0, 255)       # Vermelho: Erro
                     else:
-                        cor = (0, 255, 255)
-                    cv2.circle(img_annotated, (bx, by), 10, cor, -1)
+                        cor = (0, 255, 255)     # Amarelo
+                    cv2.circle(img_annotated, (bx, by), 11, cor, -1)
                 elif gab_correto and opcao_letra == gab_correto and resp_detectada != gab_correto:
-                    cv2.circle(img_annotated, (bx, by), 10, (255, 0, 0), 2)
+                    cv2.circle(img_annotated, (bx, by), 11, (255, 0, 0), 2)
 
     return respostas_aluno, img_annotated
 
 # ---------------------------------------------------------
-# ABAS DE NAVEGAÇÃO
+# ABAS DE NAVEGAÇÃO DO APLICATIVO
 # ---------------------------------------------------------
 tab_correcao, tab_gabarito, tab_estudantes, tab_relatorio = st.tabs([
     "📷 Corrigir Prova",
@@ -894,7 +912,7 @@ with tab_correcao:
             "Sensibilidade OMR (Contraste)",
             min_value=3.0,
             max_value=25.0,
-            value=8.0,
+            value=7.5,
             step=0.5,
             help="Reduza se o aluno usou caneta fraca/lápis; aumente se houver sombras fortes."
         )
