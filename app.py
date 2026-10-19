@@ -762,16 +762,18 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     return warped
 
 # ---------------------------------------------------------
-# ALGORITMO OMR DE ALTA PRECISÃO (INNER MASK FILL RATIO)
+# ALGORITMO OMR DE ALTA PRECISÃO (SUPORTE PARCIAL E COMPLETO)
 # ---------------------------------------------------------
-def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchimento=35.0):
+def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchimento=35.0, q_range_permitido=None):
     """
-    Mapeia e analisa dinamicamente o interior das bolinhas sem sofrer interferência
-    do contorno externo preto.
+    Analisa o interior das bolinhas (% Fill Ratio).
+    Se q_range_permitido for informado (ex: range(1, 21)), processa apenas aquele intervalo de questões.
     """
+    if q_range_permitido is None:
+        q_range_permitido = range(1, 41)
+
     gray = cv2.cvtColor(img_warped, cv2.COLOR_BGR2GRAY)
     
-    # Processamento adaptativo para remover sombras de celular
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     gray_proc = clahe.apply(gray)
     blurred = cv2.GaussianBlur(gray_proc, (3, 3), 0)
@@ -784,7 +786,6 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchi
     largura_total = 1200
     altura_total = 800
 
-    # Blocos das disciplinas [q_start, q_end, col_idx, y_start_ratio, y_end_ratio]
     blocos = [
         (1, 5, 0, 0.285, 0.535),    # Filosofia (Q01 - Q05)
         (6, 10, 0, 0.625, 0.935),   # História (Q06 - Q10)
@@ -807,17 +808,23 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchi
         y_top_bloco = altura_total * y_start_ratio
         y_bot_bloco = altura_total * y_end_ratio
 
-        # Binarização isolada por bloco (Otsu local) para isolar marcações a caneta/lápis
         x_block_start = int(col_x_start)
         x_block_end = int(col_x_start + col_w)
         y_block_start = int(y_top_bloco - 15)
         y_block_end = int(y_bot_bloco + 15)
 
         roi_block = blurred[y_block_start:y_block_end, x_block_start:x_block_end]
+        if roi_block.size == 0:
+            continue
         _, thresh_block = cv2.threshold(roi_block, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
         for row in range(num_questoes_bloco):
             num_questao = q_start + row
+
+            # Se a questão atual não estiver no intervalo permitido para a foto, ignora
+            if num_questao not in q_range_permitido:
+                continue
+
             y_center = y_top_bloco + (row + 0.5) * ((y_bot_bloco - y_top_bloco) / float(num_questoes_bloco))
 
             taxas_preenchimento = []
@@ -827,7 +834,6 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchi
                 bx = b_start_x + (opt_idx + 0.5) * b_step
                 by = y_center
 
-                # Ajuste local de centro (snapping) em janela 7x7
                 ix, iy = int(bx), int(by)
                 win_r = 3
                 crop_win = gray_proc[max(0, iy - win_r):min(altura_total, iy + win_r + 1),
@@ -840,14 +846,12 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchi
                 else:
                     best_bx, best_by = ix, iy
 
-                # Criar máscara interna (raio = 7px) excluindo a borda circular externa (11px)
                 mask_inner = np.zeros_like(roi_block, dtype=np.uint8)
                 rel_cx = int(best_bx - x_block_start)
                 rel_cy = int(best_by - y_block_start)
 
                 cv2.circle(mask_inner, (rel_cx, rel_cy), 7, 255, -1)
 
-                # Calcular taxa percentual de preenchimento de tinta dentro do núcleo da bolinha
                 pix_marcados = cv2.countNonZero(cv2.bitwise_and(thresh_block, mask_inner))
                 total_pix_mask = cv2.countNonZero(mask_inner)
 
@@ -859,7 +863,6 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchi
             max_idx = int(np.argmax(taxas_preenchimento))
             max_val = taxas_preenchimento[max_idx]
 
-            # Verificar se a opção mais preenchida supera o limiar mínimo de segurança
             outras_taxas = [t for i, t in enumerate(taxas_preenchimento) if i != max_idx]
             segunda_maior = max(outras_taxas) if outras_taxas else 0.0
 
@@ -873,20 +876,19 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchi
             respostas_aluno[num_questao] = resp_detectada
             gab_correto = gabarito_oficial.get(num_questao) if gabarito_oficial else None
 
-            # Anotação visual da imagem processada
             for opt_idx, (bx, by) in enumerate(coords_opcoes):
                 opcao_letra = opcoes[opt_idx]
 
                 if opt_idx == idx_marcado:
                     if gab_correto and opcao_letra == gab_correto:
-                        cor = (0, 255, 0)       # Verde = Acerto
+                        cor = (0, 255, 0)
                     elif gab_correto and opcao_letra != gab_correto:
-                        cor = (0, 0, 255)       # Vermelho = Erro
+                        cor = (0, 0, 255)
                     else:
-                        cor = (0, 255, 255)     # Amarelo
+                        cor = (0, 255, 255)
                     cv2.circle(img_annotated, (bx, by), 11, cor, -1)
                 elif gab_correto and opcao_letra == gab_correto and resp_detectada != gab_correto:
-                    cv2.circle(img_annotated, (bx, by), 11, (255, 0, 0), 2)  # Azul = Onde era o gabarito
+                    cv2.circle(img_annotated, (bx, by), 11, (255, 0, 0), 2)
 
     return respostas_aluno, img_annotated
 
@@ -901,7 +903,7 @@ tab_correcao, tab_gabarito, tab_estudantes, tab_relatorio = st.tabs([
 ])
 
 # ---------------------------------------------------------
-# ABA 1: CORRIGIR PROVA
+# ABA 1: CORRIGIR PROVA (FOTO ÚNICA OU DUAS FOTOS)
 # ---------------------------------------------------------
 with tab_correcao:
     st.header("Captura ou Upload do Cartão de Respostas")
@@ -957,43 +959,109 @@ with tab_correcao:
             max_value=60.0,
             value=35.0,
             step=1.0,
-            help="Defina a porcentagem mínima de tinta/lápis necessária para considerar a bolinha marcada. Reduza para rascunhos fracos e aumente se houver rasuras."
+            help="Defina a porcentagem mínima de tinta/lápis para considerar a bolinha marcada."
         )
 
     with col_cam:
+        modo_fotos = st.radio(
+            "Modo de Captura:",
+            ["📸 Foto Única (Cartão Completo)", "📸 Duas Fotos Complementares (Metade 1 + Metade 2)"],
+            horizontal=True,
+        )
+
         origem = st.radio(
             "Fonte da Imagem:",
             ["Câmera", "Enviar Arquivo (Upload)"],
             horizontal=True,
         )
-        img_input = None
 
-        if origem == "Câmera":
-            foto = st.camera_input("Posicione o cartão de respostas (Modo Paisagem ou Retrato)")
-            if foto:
-                img_input = foto
+        img_input_1 = None
+        img_input_2 = None
+
+        if modo_fotos == "📸 Foto Única (Cartão Completo)":
+            if origem == "Câmera":
+                foto = st.camera_input("Posicione o cartão de respostas (Modo Paisagem ou Retrato)")
+                if foto:
+                    img_input_1 = foto
+            else:
+                upload_img = st.file_uploader(
+                    "Envie uma foto do cartão de respostas completo",
+                    type=["png", "jpg", "jpeg"],
+                    key="up_unica"
+                )
+                if upload_img:
+                    img_input_1 = upload_img
         else:
-            upload_img = st.file_uploader(
-                "Envie uma foto do cartão de respostas",
-                type=["png", "jpg", "jpeg"],
-            )
-            if upload_img:
-                img_input = upload_img
+            st.caption("📌 **Tire duas fotos aproximadas:** Foto 1 para Q01-20 (Filosofia, História, Geografia, Sociologia) e Foto 2 para Q21-40 (Ed. Física, Inglês, Português).")
+            c_f1, c_f2 = st.columns(2)
 
-    if img_input:
+            with c_f1:
+                st.markdown("**Foto 1 - Metade 1 (Q01 a Q20)**")
+                if origem == "Câmera":
+                    foto1 = st.camera_input("Foto da Metade 1 (Q01-20)", key="cam_m1")
+                    if foto1:
+                        img_input_1 = foto1
+                else:
+                    up1 = st.file_uploader("Upload Metade 1 (Q01-20)", type=["png", "jpg", "jpeg"], key="up_m1")
+                    if up1:
+                        img_input_1 = up1
+
+            with c_f2:
+                st.markdown("**Foto 2 - Metade 2 (Q21 a Q40)**")
+                if origem == "Câmera":
+                    foto2 = st.camera_input("Foto da Metade 2 (Q21-40)", key="cam_m2")
+                    if foto2:
+                        img_input_2 = foto2
+                else:
+                    up2 = st.file_uploader("Upload Metade 2 (Q21-40)", type=["png", "jpg", "jpeg"], key="up_m2")
+                    if up2:
+                        img_input_2 = up2
+
+    # Processamento da Correção
+    pode_processar = False
+    if modo_fotos == "📸 Foto Única (Cartão Completo)" and img_input_1 is not None:
+        pode_processar = True
+    elif modo_fotos != "📸 Foto Única (Cartão Completo)" and img_input_1 is not None and img_input_2 is not None:
+        pode_processar = True
+
+    if pode_processar:
         if not nome_aluno:
             st.warning("⚠️ Por favor, selecione ou informe o nome do aluno.")
         else:
-            file_bytes = np.asarray(bytearray(img_input.read()), dtype=np.uint8)
-            img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-
-            img_warped = auto_orientar_e_retificar_completo(img)
             gabaritos_todos = st.session_state["gabaritos_oficiais"]
             gabarito = gabaritos_todos.get(ano_estudante, gabaritos_todos.get("1º Ano", {}))
 
-            respostas_aluno, img_annotated = ler_respostas_40_questoes(
-                img_warped, gabarito, limiar_preenchimento=sensibilidade_omr
-            )
+            if modo_fotos == "📸 Foto Única (Cartão Completo)":
+                file_bytes = np.asarray(bytearray(img_input_1.read()), dtype=np.uint8)
+                img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+
+                img_warped = auto_orientar_e_retificar_completo(img)
+                respostas_aluno, img_annotated_1 = ler_respostas_40_questoes(
+                    img_warped, gabarito, limiar_preenchimento=sensibilidade_omr, q_range_permitido=range(1, 41)
+                )
+                img_annotated_2 = None
+            else:
+                # Foto 1 (Q01 a Q20)
+                file_bytes_1 = np.asarray(bytearray(img_input_1.read()), dtype=np.uint8)
+                img1 = cv2.imdecode(file_bytes_1, cv2.IMREAD_COLOR)
+                warped1 = auto_orientar_e_retificar_completo(img1)
+
+                resp1, img_annotated_1 = ler_respostas_40_questoes(
+                    warped1, gabarito, limiar_preenchimento=sensibilidade_omr, q_range_permitido=range(1, 21)
+                )
+
+                # Foto 2 (Q21 a Q40)
+                file_bytes_2 = np.asarray(bytearray(img_input_2.read()), dtype=np.uint8)
+                img2 = cv2.imdecode(file_bytes_2, cv2.IMREAD_COLOR)
+                warped2 = auto_orientar_e_retificar_completo(img2)
+
+                resp2, img_annotated_2 = ler_respostas_40_questoes(
+                    warped2, gabarito, limiar_preenchimento=sensibilidade_omr, q_range_permitido=range(21, 41)
+                )
+
+                respostas_aluno = {}
+                respostas_aluno.update(resp1)
+                respostas_aluno.update(resp2)
 
             acertos_por_disc = {}
             total_por_disc = {
@@ -1060,8 +1128,18 @@ with tab_correcao:
 
             col_img, col_det = st.columns(2)
             with col_img:
-                st.subheader("Imagem Processada (Overlay OMR)")
-                st.image(img_annotated, channels="BGR", use_container_width=True)
+                st.subheader("Imagens Processadas (Overlay OMR)")
+                if img_annotated_2 is None:
+                    st.image(img_annotated_1, channels="BGR", use_container_width=True)
+                else:
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.caption("Metade 1 (Q01-20)")
+                        st.image(img_annotated_1, channels="BGR", use_container_width=True)
+                    with c2:
+                        st.caption("Metade 2 (Q21-40)")
+                        st.image(img_annotated_2, channels="BGR", use_container_width=True)
+
                 st.caption("🟢 Verde = Acerto | 🔴 Vermelho = Erro | 🔵 Azul = Gabarito Correto")
 
             with col_det:
