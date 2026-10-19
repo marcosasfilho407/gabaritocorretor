@@ -148,7 +148,7 @@ def aplicar_estilo_jt():
             box-shadow: 0 0 12px rgba(30, 80, 255, 0.6);
         }}
 
-        /* Botões Customizados com gradiente JT */
+        /* Botões Customizados */
         .stButton > button {{
             background: linear-gradient(90deg, #1E50FF 0%, #2B60FF 100%) !important;
             color: #FFFFFF !important;
@@ -165,7 +165,7 @@ def aplicar_estilo_jt():
             border-color: #FFFFFF !important;
         }}
 
-        /* Estilização de Cards e Expander */
+        /* Cards e Expander */
         [data-testid="stExpander"] {{
             background: rgba(15, 23, 42, 0.75) !important;
             border: 1px solid rgba(30, 80, 255, 0.4) !important;
@@ -173,7 +173,7 @@ def aplicar_estilo_jt():
             backdrop-filter: blur(10px);
         }}
 
-        /* Estilização dos Blocos de Métricas */
+        /* Métricas */
         [data-testid="stMetricValue"] {{
             color: #FFB800 !important;
             font-weight: 800 !important;
@@ -695,8 +695,7 @@ st.markdown("""
 def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     """
     Detecta as 4 âncoras pretas nos cantos do cartão-resposta.
-    Suporta fotos tiradas em MODO PAISAGEM (horizontal) ou MODO RETRATO (vertical),
-    corrigindo rotações de 90°, 180° e 270° automaticamente.
+    Suporta fotos em MODO PAISAGEM ou MODO RETRATO e rotações de 90°, 180° e 270°.
     """
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
@@ -727,7 +726,6 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
             imagem = cv2.rotate(imagem, cv2.ROTATE_90_CLOCKWISE)
         return cv2.resize(imagem, (largura, altura))
 
-    # Seleciona os 4 cantos extremos (TL, TR, BR, BL)
     tl = min(candidatos, key=lambda c: c[0] + c[1])
     tr = max(candidatos, key=lambda c: c[0] - c[1])
     br = max(candidatos, key=lambda c: c[0] + c[1])
@@ -739,13 +737,11 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     dist_left = np.linalg.norm(pts_origem[0] - pts_origem[3])
 
     if dist_left > dist_top:
-        # Foto em MODO RETRATO (vertical) -> converte para horizontal
         pts_destino = np.array([[0, 0], [altura - 1, 0], [altura - 1, largura - 1], [0, largura - 1]], dtype="float32")
         M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
         warped = cv2.warpPerspective(imagem, M, (altura, largura))
         warped = cv2.rotate(warped, cv2.ROTATE_90_COUNTERCLOCKWISE)
     else:
-        # Foto em MODO PAISAGEM (horizontal)
         pts_destino = np.array([[0, 0], [largura - 1, 0], [largura - 1, altura - 1], [0, altura - 1]], dtype="float32")
         M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
         warped = cv2.warpPerspective(imagem, M, (largura, altura))
@@ -753,7 +749,6 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     if warped.shape[0] != altura or warped.shape[1] != largura:
         warped = cv2.resize(warped, (largura, altura))
 
-    # Verifica se ficou de ponta-cabeça (180°)
     warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
     top_region = warped_gray[10:120, 100:1100]
     bot_region = warped_gray[680:790, 100:1100]
@@ -767,17 +762,20 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     return warped
 
 # ---------------------------------------------------------
-# LEITURA OMR ADAPTATIVA POR DENSIDADE DE PIXELS
+# ALGORITMO OMR DE ALTA PRECISÃO (INNER MASK FILL RATIO)
 # ---------------------------------------------------------
-def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=7.5):
+def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchimento=35.0):
     """
-    Processa a grade retificada das 40 questões em resolução 1200x800.
+    Mapeia e analisa dinamicamente o interior das bolinhas sem sofrer interferência
+    do contorno externo preto.
     """
     gray = cv2.cvtColor(img_warped, cv2.COLOR_BGR2GRAY)
     
-    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
+    # Processamento adaptativo para remover sombras de celular
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     gray_proc = clahe.apply(gray)
-    
+    blurred = cv2.GaussianBlur(gray_proc, (3, 3), 0)
+
     img_annotated = img_warped.copy()
 
     opcoes = ["A", "B", "C", "D", "E"]
@@ -786,15 +784,15 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=7
     largura_total = 1200
     altura_total = 800
 
-    # Definição das coordenadas dos blocos
+    # Blocos das disciplinas [q_start, q_end, col_idx, y_start_ratio, y_end_ratio]
     blocos = [
         (1, 5, 0, 0.285, 0.535),    # Filosofia (Q01 - Q05)
         (6, 10, 0, 0.625, 0.935),   # História (Q06 - Q10)
         (11, 15, 1, 0.285, 0.535),  # Geografia (Q11 - Q15)
-        (16, 20, 1, 0.625, 0.935),  # Sociologia (Q16 - Q20)
-        (21, 24, 2, 0.285, 0.485),  # Ed. Física (Q21 - Q24)
-        (25, 30, 2, 0.585, 0.935),  # Inglês (Q25 - Q30)
-        (31, 40, 3, 0.285, 0.935),  # Português (Q31 - Q40)
+        (16, 20, 1, 0.625, 0.935),  # Sociologia (16 - 20)
+        (21, 24, 2, 0.285, 0.485),  # Ed. Física (21 - 24)
+        (25, 30, 2, 0.585, 0.935),  # Inglês (25 - 30)
+        (31, 40, 3, 0.285, 0.935),  # Português (31 - 40)
     ]
 
     for q_start, q_end, col_idx, y_start_ratio, y_end_ratio in blocos:
@@ -809,37 +807,65 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=7
         y_top_bloco = altura_total * y_start_ratio
         y_bot_bloco = altura_total * y_end_ratio
 
+        # Binarização isolada por bloco (Otsu local) para isolar marcações a caneta/lápis
+        x_block_start = int(col_x_start)
+        x_block_end = int(col_x_start + col_w)
+        y_block_start = int(y_top_bloco - 15)
+        y_block_end = int(y_bot_bloco + 15)
+
+        roi_block = blurred[y_block_start:y_block_end, x_block_start:x_block_end]
+        _, thresh_block = cv2.threshold(roi_block, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
         for row in range(num_questoes_bloco):
             num_questao = q_start + row
             y_center = y_top_bloco + (row + 0.5) * ((y_bot_bloco - y_top_bloco) / float(num_questoes_bloco))
 
-            medias_cinza = []
+            taxas_preenchimento = []
             coords_opcoes = []
 
             for opt_idx in range(5):
                 bx = b_start_x + (opt_idx + 0.5) * b_step
                 by = y_center
 
-                r = 11
-                x1, x2 = int(bx - r), int(bx + r)
-                y1, y2 = int(by - r), int(by + r)
+                # Ajuste local de centro (snapping) em janela 7x7
+                ix, iy = int(bx), int(by)
+                win_r = 3
+                crop_win = gray_proc[max(0, iy - win_r):min(altura_total, iy + win_r + 1),
+                                     max(0, ix - win_r):min(largura_total, ix + win_r + 1)]
+                
+                if crop_win.size > 0:
+                    min_loc = np.unravel_index(np.argmin(crop_win), crop_win.shape)
+                    best_bx = (ix - win_r) + min_loc[1]
+                    best_by = (iy - win_r) + min_loc[0]
+                else:
+                    best_bx, best_by = ix, iy
 
-                roi = gray_proc[max(0, y1):min(altura_total, y2), max(0, x1):min(largura_total, x2)]
-                media_tom = float(np.mean(roi)) if roi.size > 0 else 255.0
+                # Criar máscara interna (raio = 7px) excluindo a borda circular externa (11px)
+                mask_inner = np.zeros_like(roi_block, dtype=np.uint8)
+                rel_cx = int(best_bx - x_block_start)
+                rel_cy = int(best_by - y_block_start)
 
-                medias_cinza.append(media_tom)
-                coords_opcoes.append((int(bx), int(by)))
+                cv2.circle(mask_inner, (rel_cx, rel_cy), 7, 255, -1)
 
-            min_idx = int(np.argmin(medias_cinza))
-            min_val = medias_cinza[min_idx]
+                # Calcular taxa percentual de preenchimento de tinta dentro do núcleo da bolinha
+                pix_marcados = cv2.countNonZero(cv2.bitwise_and(thresh_block, mask_inner))
+                total_pix_mask = cv2.countNonZero(mask_inner)
 
-            outras_medias = [m for i, m in enumerate(medias_cinza) if i != min_idx]
-            media_outras = np.mean(outras_medias) if outras_medias else 255.0
-            diferenca = media_outras - min_val
+                fill_ratio = (pix_marcados / float(total_pix_mask)) * 100.0 if total_pix_mask > 0 else 0.0
 
-            if diferenca >= sensibilidade:
-                resp_detectada = opcoes[min_idx]
-                idx_marcado = min_idx
+                taxas_preenchimento.append(fill_ratio)
+                coords_opcoes.append((int(best_bx), int(best_by)))
+
+            max_idx = int(np.argmax(taxas_preenchimento))
+            max_val = taxas_preenchimento[max_idx]
+
+            # Verificar se a opção mais preenchida supera o limiar mínimo de segurança
+            outras_taxas = [t for i, t in enumerate(taxas_preenchimento) if i != max_idx]
+            segunda_maior = max(outras_taxas) if outras_taxas else 0.0
+
+            if max_val >= limiar_preenchimento and (max_val - segunda_maior) >= 12.0:
+                resp_detectada = opcoes[max_idx]
+                idx_marcado = max_idx
             else:
                 resp_detectada = "Branco/Nulo"
                 idx_marcado = -1
@@ -847,19 +873,20 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=7
             respostas_aluno[num_questao] = resp_detectada
             gab_correto = gabarito_oficial.get(num_questao) if gabarito_oficial else None
 
+            # Anotação visual da imagem processada
             for opt_idx, (bx, by) in enumerate(coords_opcoes):
                 opcao_letra = opcoes[opt_idx]
 
                 if opt_idx == idx_marcado:
                     if gab_correto and opcao_letra == gab_correto:
-                        cor = (0, 255, 0)       # Verde: Acerto
+                        cor = (0, 255, 0)       # Verde = Acerto
                     elif gab_correto and opcao_letra != gab_correto:
-                        cor = (0, 0, 255)       # Vermelho: Erro
+                        cor = (0, 0, 255)       # Vermelho = Erro
                     else:
                         cor = (0, 255, 255)     # Amarelo
                     cv2.circle(img_annotated, (bx, by), 11, cor, -1)
                 elif gab_correto and opcao_letra == gab_correto and resp_detectada != gab_correto:
-                    cv2.circle(img_annotated, (bx, by), 11, (255, 0, 0), 2)
+                    cv2.circle(img_annotated, (bx, by), 11, (255, 0, 0), 2)  # Azul = Onde era o gabarito
 
     return respostas_aluno, img_annotated
 
@@ -925,12 +952,12 @@ with tab_correcao:
         st.divider()
         st.subheader("Ajustes da Leitura OMR")
         sensibilidade_omr = st.slider(
-            "Sensibilidade OMR (Contraste)",
-            min_value=3.0,
-            max_value=25.0,
-            value=7.5,
-            step=0.5,
-            help="Reduza se o aluno usou caneta fraca/lápis; aumente se houver sombras fortes."
+            "Limiar de Preenchimento (% Mínima de Tinta)",
+            min_value=15.0,
+            max_value=60.0,
+            value=35.0,
+            step=1.0,
+            help="Defina a porcentagem mínima de tinta/lápis necessária para considerar a bolinha marcada. Reduza para rascunhos fracos e aumente se houver rasuras."
         )
 
     with col_cam:
@@ -965,7 +992,7 @@ with tab_correcao:
             gabarito = gabaritos_todos.get(ano_estudante, gabaritos_todos.get("1º Ano", {}))
 
             respostas_aluno, img_annotated = ler_respostas_40_questoes(
-                img_warped, gabarito, sensibilidade=sensibilidade_omr
+                img_warped, gabarito, limiar_preenchimento=sensibilidade_omr
             )
 
             acertos_por_disc = {}
