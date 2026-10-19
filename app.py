@@ -690,16 +690,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# VISÃO COMPUTACIONAL (DETECCÃO ESPACIAL DE ÂNCORAS)
+# VISÃO COMPUTACIONAL ADAPTATIVA (PAISAGEM E RETRATO)
 # ---------------------------------------------------------
-def encontrar_4_ancoras_espaciais(imagem):
+def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     """
-    Localiza de forma robusta os 4 quadrados pretos nos cantos da folha,
-    mesmo em enquadramentos pequenos ou fotos aproximadas da câmera.
+    Detecta as 4 âncoras pretas nos cantos do cartão-resposta.
+    Suporta fotos tiradas em MODO PAISAGEM (horizontal) ou MODO RETRATO (vertical),
+    corrigindo rotações de 90°, 180° e 270° automaticamente.
     """
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
-    
-    # Melhora o contraste contra sombras da câmera usando CLAHE
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     gray_enhanced = clahe.apply(gray)
     blurred = cv2.GaussianBlur(gray_enhanced, (5, 5), 0)
@@ -714,51 +713,68 @@ def encontrar_4_ancoras_espaciais(imagem):
     candidatos = []
     for c in cnts:
         area = cv2.contourArea(c)
-        if 40 < area < (w_img * h_img * 0.05):
+        if 30 < area < (w_img * h_img * 0.05):
             x, y, w, h = cv2.boundingRect(c)
             aspect = float(w) / h
             extent = area / float(w * h)
-            if 0.60 <= aspect <= 1.40 and extent > 0.55:
+            if 0.55 <= aspect <= 1.45 and extent > 0.50:
                 cx = int(x + w / 2.0)
                 cy = int(y + h / 2.0)
                 candidatos.append((cx, cy, area, x, y, w, h))
 
     if len(candidatos) < 4:
-        return None
+        if h_img > w_img:
+            imagem = cv2.rotate(imagem, cv2.ROTATE_90_CLOCKWISE)
+        return cv2.resize(imagem, (largura, altura))
 
-    # Seleciona as 4 extremidades espaciais mais distantes (TL, TR, BR, BL)
+    # Seleciona os 4 cantos extremos (TL, TR, BR, BL)
     tl = min(candidatos, key=lambda c: c[0] + c[1])
     tr = max(candidatos, key=lambda c: c[0] - c[1])
     br = max(candidatos, key=lambda c: c[0] + c[1])
     bl = min(candidatos, key=lambda c: c[0] - c[1])
 
-    return [tl, tr, br, bl]
+    pts_origem = np.array([[tl[0], tl[1]], [tr[0], tr[1]], [br[0], br[1]], [bl[0], bl[1]]], dtype="float32")
 
-def retificar_grelha(imagem, largura=1200, altura=800):
-    """Aplica perspectiva alinhada aos 4 cantos reais do cartão-resposta."""
-    ancoras = encontrar_4_ancoras_espaciais(imagem)
+    dist_top = np.linalg.norm(pts_origem[0] - pts_origem[1])
+    dist_left = np.linalg.norm(pts_origem[0] - pts_origem[3])
 
-    if ancoras and len(ancoras) == 4:
-        pts_origem = np.array([[p[0], p[1]] for p in ancoras], dtype="float32")
-        pts_destino = np.array(
-            [[0, 0], [largura - 1, 0], [largura - 1, altura - 1], [0, altura - 1]],
-            dtype="float32",
-        )
+    if dist_left > dist_top:
+        # Foto em MODO RETRATO (vertical) -> converte para horizontal
+        pts_destino = np.array([[0, 0], [altura - 1, 0], [altura - 1, largura - 1], [0, largura - 1]], dtype="float32")
         M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
-        return cv2.warpPerspective(imagem, M, (largura, altura))
+        warped = cv2.warpPerspective(imagem, M, (altura, largura))
+        warped = cv2.rotate(warped, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    else:
+        # Foto em MODO PAISAGEM (horizontal)
+        pts_destino = np.array([[0, 0], [largura - 1, 0], [largura - 1, altura - 1], [0, altura - 1]], dtype="float32")
+        M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
+        warped = cv2.warpPerspective(imagem, M, (largura, altura))
 
-    return cv2.resize(imagem, (largura, altura))
+    if warped.shape[0] != altura or warped.shape[1] != largura:
+        warped = cv2.resize(warped, (largura, altura))
+
+    # Verifica se ficou de ponta-cabeça (180°)
+    warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+    top_region = warped_gray[10:120, 100:1100]
+    bot_region = warped_gray[680:790, 100:1100]
+
+    top_edges = np.sum(cv2.Canny(top_region, 50, 150))
+    bot_edges = np.sum(cv2.Canny(bot_region, 50, 150))
+
+    if top_edges > bot_edges * 1.15:
+        warped = cv2.rotate(warped, cv2.ROTATE_180)
+
+    return warped
 
 # ---------------------------------------------------------
 # LEITURA OMR ADAPTATIVA POR DENSIDADE DE PIXELS
 # ---------------------------------------------------------
-def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=8.0):
+def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=7.5):
     """
-    Mapeamento calibrado dos 7 blocos de disciplinas para resolução 1200x800.
+    Processa a grade retificada das 40 questões em resolução 1200x800.
     """
     gray = cv2.cvtColor(img_warped, cv2.COLOR_BGR2GRAY)
     
-    # Aplica filtro para uniformizar o fundo antes da medição
     clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
     gray_proc = clahe.apply(gray)
     
@@ -770,7 +786,7 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, sensibilidade=8
     largura_total = 1200
     altura_total = 800
 
-    # Definição precisa dos blocos [q_start, q_end, col_idx, y_start_ratio, y_end_ratio]
+    # Definição das coordenadas dos blocos
     blocos = [
         (1, 5, 0, 0.285, 0.535),    # Filosofia (Q01 - Q05)
         (6, 10, 0, 0.625, 0.935),   # História (Q06 - Q10)
@@ -926,7 +942,7 @@ with tab_correcao:
         img_input = None
 
         if origem == "Câmera":
-            foto = st.camera_input("Posicione o cartão de respostas de 40 questões na tela")
+            foto = st.camera_input("Posicione o cartão de respostas (Modo Paisagem ou Retrato)")
             if foto:
                 img_input = foto
         else:
@@ -944,7 +960,7 @@ with tab_correcao:
             file_bytes = np.asarray(bytearray(img_input.read()), dtype=np.uint8)
             img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-            img_warped = retificar_grelha(img)
+            img_warped = auto_orientar_e_retificar_completo(img)
             gabaritos_todos = st.session_state["gabaritos_oficiais"]
             gabarito = gabaritos_todos.get(ano_estudante, gabaritos_todos.get("1º Ano", {}))
 
