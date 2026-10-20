@@ -695,22 +695,22 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# TRATAMENTO DE ORIENTAÇÃO DA FOTO E RETIFICAÇÃO
+# ENQUADRAMENTO E ALINHAMENTO AUTOMÁTICO DE PRECISÃO
 # ---------------------------------------------------------
 def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     """
-    Garante que a imagem fique na orientação horizontal correta.
-    Retifica a perspectiva quando as âncoras forem encontradas.
+    Detecta as âncoras pretas nos cantos da imagem e projeta o cartão exatamente
+    nas coordenadas oficiais de gabarito para perfeita sobreposição.
     """
     h_img, w_img = imagem.shape[:2]
 
-    # Se a foto estiver em pé (retrato), gira para paisagem (deitado)
+    # Garante orientação horizontal (paisagem)
     if h_img > w_img:
         imagem = cv2.rotate(imagem, cv2.ROTATE_90_CLOCKWISE)
         h_img, w_img = imagem.shape[:2]
 
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     gray_enhanced = clahe.apply(gray)
     blurred = cv2.GaussianBlur(gray_enhanced, (5, 5), 0)
 
@@ -727,27 +727,37 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
             x, y, w, h = cv2.boundingRect(c)
             aspect = float(w) / h
             extent = area / float(w * h)
-            if 0.55 <= aspect <= 1.45 and extent > 0.50:
+            if 0.55 <= aspect <= 1.45 and extent > 0.45:
                 cx = int(x + w / 2.0)
                 cy = int(y + h / 2.0)
                 candidatos.append((cx, cy, area, x, y, w, h))
 
-    if len(candidatos) < 4:
-        # Se for foto recortada de metade sem as 4 âncoras, ajusta a escala mantendo a proporção de paisagem
-        return cv2.resize(imagem, (largura, altura))
+    # Coordenadas reais das âncoras no template oficial (35px de recuo das bordas)
+    m_x, m_y = 35.0, 35.0
+    pts_destino = np.array([
+        [m_x, m_y], 
+        [largura - m_x, m_y], 
+        [largura - m_x, altura - m_y], 
+        [m_x, altura - m_y]
+    ], dtype="float32")
 
-    tl = min(candidatos, key=lambda c: c[0] + c[1])
-    tr = max(candidatos, key=lambda c: c[0] - c[1])
-    br = max(candidatos, key=lambda c: c[0] + c[1])
-    bl = min(candidatos, key=lambda c: c[0] - c[1])
+    if len(candidatos) >= 4:
+        # Pega as 4 âncoras localizadas mais nos cantos da foto
+        tl = min(candidatos, key=lambda c: c[0] + c[1])
+        tr = max(candidatos, key=lambda c: c[0] - c[1])
+        br = max(candidatos, key=lambda c: c[0] + c[1])
+        bl = min(candidatos, key=lambda c: c[0] - c[1])
 
-    pts_origem = np.array([[tl[0], tl[1]], [tr[0], tr[1]], [br[0], br[1]], [bl[0], bl[1]]], dtype="float32")
+        pts_origem = np.array([[tl[0], tl[1]], [tr[0], tr[1]], [br[0], br[1]], [bl[0], bl[1]]], dtype="float32")
 
-    pts_destino = np.array([[0, 0], [largura - 1, 0], [largura - 1, altura - 1], [0, altura - 1]], dtype="float32")
-    M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
-    warped = cv2.warpPerspective(imagem, M, (largura, altura))
+        # Aplica a transformação de perspectiva exata
+        M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
+        warped = cv2.warpPerspective(imagem, M, (largura, altura))
+    else:
+        # Fallback de escala se foto estiver recortada muito próxima
+        warped = cv2.resize(imagem, (largura, altura))
 
-    # Teste de orientação ponta-cabeça (180°)
+    # Verifica se a imagem ficou ponta-cabeça (180°)
     warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
     top_region = warped_gray[10:120, 100:1100]
     bot_region = warped_gray[680:790, 100:1100]
@@ -755,21 +765,18 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     top_edges = np.sum(cv2.Canny(top_region, 50, 150))
     bot_edges = np.sum(cv2.Canny(bot_region, 50, 150))
 
-    if top_edges > bot_edges * 1.2:
+    if top_edges > bot_edges * 1.25:
         warped = cv2.rotate(warped, cv2.ROTATE_180)
 
     return warped
 
 # ---------------------------------------------------------
-# ALGORITMO OMR ADAPTATIVO (SUPORTE COMPLETO E METADES)
+# ALGORITMO OMR ADAPTATIVO COM OVERLAY MÁSCARA GABARITO
 # ---------------------------------------------------------
 def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchimento=35.0, modo="completo"):
     """
-    Processa as bolinhas do cartão-resposta.
-    Modos suportados:
-    - 'completo': Analisa as 4 colunas em 1200x800 px.
-    - 'metade_1': Analisa as 2 colunas da Metade 1 (Q01-20) reajustadas na largura total.
-    - 'metade_2': Analisa as 2 colunas da Metade 2 (Q21-40) reajustadas na largura total.
+    Mapeia e lê as respostas. Desenha o overlay das bolinhas do gabarito oficial
+    diretamente sobrepostas aos marcadores do cartão processado.
     """
     gray = cv2.cvtColor(img_warped, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
@@ -784,36 +791,31 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchi
     largura_total = 1200
     altura_total = 800
 
-    # Definição dos blocos das disciplinas [q_start, q_end, col_idx_relativo, y_start_ratio, y_end_ratio]
+    # Estrutura de colunas e blocos do gabarito
     if modo == "completo":
-        q_min, q_max = 1, 40
         blocos = [
-            (1, 5, 0, 0.285, 0.535),    # Filosofia (Q01 - Q05) - Coluna 0
-            (6, 10, 0, 0.625, 0.935),   # História (Q06 - Q10) - Coluna 0
-            (11, 15, 1, 0.285, 0.535),  # Geografia (Q11 - Q15) - Coluna 1
-            (16, 20, 1, 0.625, 0.935),  # Sociologia (Q16 - Q20) - Coluna 1
-            (21, 24, 2, 0.285, 0.485),  # Ed. Física (Q21 - Q24) - Coluna 2
-            (25, 30, 2, 0.585, 0.935),  # Inglês (Q25 - Q30) - Coluna 2
-            (31, 40, 3, 0.285, 0.935),  # Português (Q31 - Q40) - Coluna 3
+            (1, 5, 0, 0.285, 0.535),    # Filosofia (Q01-05) - Coluna 0
+            (6, 10, 0, 0.625, 0.935),   # História (Q06-10) - Coluna 0
+            (11, 15, 1, 0.285, 0.535),  # Geografia (Q11-15) - Coluna 1
+            (16, 20, 1, 0.625, 0.935),  # Sociologia (Q16-20) - Coluna 1
+            (21, 24, 2, 0.285, 0.485),  # Ed. Física (Q21-24) - Coluna 2
+            (25, 30, 2, 0.585, 0.935),  # Inglês (Q25-30) - Coluna 2
+            (31, 40, 3, 0.285, 0.935),  # Português (Q31-40) - Coluna 3
         ]
         num_colunas_foto = 4.0
     elif modo == "metade_1":
-        q_min, q_max = 1, 20
-        # Na foto da Metade 1, existem 2 colunas principais no enquadramento
         blocos = [
-            (1, 5, 0, 0.285, 0.535),    # Filosofia (Q01 - Q05) -> Coluna 0 da Foto 1
-            (6, 10, 0, 0.625, 0.935),   # História (Q06 - Q10) -> Coluna 0 da Foto 1
-            (11, 15, 1, 0.285, 0.535),  # Geografia (Q11 - Q15) -> Coluna 1 da Foto 1
-            (16, 20, 1, 0.625, 0.935),  # Sociologia (Q16 - Q20) -> Coluna 1 da Foto 1
+            (1, 5, 0, 0.285, 0.535),    # Filosofia -> Coluna 0 da Foto 1
+            (6, 10, 0, 0.625, 0.935),   # História -> Coluna 0 da Foto 1
+            (11, 15, 1, 0.285, 0.535),  # Geografia -> Coluna 1 da Foto 1
+            (16, 20, 1, 0.625, 0.935),  # Sociologia -> Coluna 1 da Foto 1
         ]
         num_colunas_foto = 2.0
     else:  # metade_2
-        q_min, q_max = 21, 40
-        # Na foto da Metade 2, a Coluna 2 do gabarito vira a Coluna 0 da Foto 2, e a Coluna 3 vira a Coluna 1
         blocos = [
-            (21, 24, 0, 0.285, 0.485),  # Ed. Física (Q21 - Q24) -> Coluna 0 da Foto 2
-            (25, 30, 0, 0.585, 0.935),  # Inglês (Q25 - Q30) -> Coluna 0 da Foto 2
-            (31, 40, 1, 0.285, 0.935),  # Português (Q31 - Q40) -> Coluna 1 da Foto 2
+            (21, 24, 0, 0.285, 0.485),  # Ed. Física -> Coluna 0 da Foto 2
+            (25, 30, 0, 0.585, 0.935),  # Inglês -> Coluna 0 da Foto 2
+            (31, 40, 1, 0.285, 0.935),  # Português -> Coluna 1 da Foto 2
         ]
         num_colunas_foto = 2.0
 
@@ -894,18 +896,23 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchi
             respostas_aluno[num_questao] = resp_detectada
             gab_correto = gabarito_oficial.get(num_questao) if gabarito_oficial else None
 
+            # Desenha os círculos de sobreposição visual perfeita
             for opt_idx, (bx, by) in enumerate(coords_opcoes):
                 opcao_letra = opcoes[opt_idx]
 
+                # Anel guia azul-ciano indicando o gabarito oficial alinhado
+                cv2.circle(img_annotated, (bx, by), 12, (255, 255, 0), 1)
+
                 if opt_idx == idx_marcado:
                     if gab_correto and opcao_letra == gab_correto:
-                        cor = (0, 255, 0)
+                        cor = (0, 255, 0) # Verde se acertou
                     elif gab_correto and opcao_letra != gab_correto:
-                        cor = (0, 0, 255)
+                        cor = (0, 0, 255) # Vermelho se errou
                     else:
                         cor = (0, 255, 255)
-                    cv2.circle(img_annotated, (bx, by), 11, cor, -1)
+                    cv2.circle(img_annotated, (bx, by), 10, cor, -1)
                 elif gab_correto and opcao_letra == gab_correto and resp_detectada != gab_correto:
+                    # Destaque azul se o aluno errou e qual era a resposta correta
                     cv2.circle(img_annotated, (bx, by), 11, (255, 0, 0), 2)
 
     return respostas_aluno, img_annotated
@@ -1010,7 +1017,7 @@ with tab_correcao:
                 if upload_img:
                     img_input_1 = upload_img
         else:
-            st.caption("📌 **Enquadre cada metade deitada (horizontal):** Metade 1 (Q01-20) e Metade 2 (Q21-40).")
+            st.caption("📌 **Fotografe cada metade (deitada ou em pé):** Metade 1 (Q01-20) e Metade 2 (Q21-40). O aplicativo enquadra automaticamente!")
             c_f1, c_f2 = st.columns(2)
 
             with c_f1:
@@ -1155,7 +1162,7 @@ with tab_correcao:
                         st.caption("Metade 2 (Q21-40)")
                         st.image(img_annotated_2, channels="BGR", use_container_width=True)
 
-                st.caption("🟢 Verde = Acerto | 🔴 Vermelho = Erro | 🔵 Azul = Gabarito Correto")
+                st.caption("🟡 Círculo Amarelo/Ciano = Posição do Gabarito | 🟢 Verde = Acerto | 🔴 Vermelho = Erro")
 
             with col_det:
                 st.subheader("Detalhamento por Questão")
