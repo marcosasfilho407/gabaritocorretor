@@ -6,6 +6,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
+from PIL import Image, ImageOps
 
 # ---------------------------------------------------------
 # CONSTANTES E ARQUIVOS DE PERSISTÊNCIA EM DISCO
@@ -40,6 +41,17 @@ def obter_imagem_fundo_base64():
     return None
 
 # ---------------------------------------------------------
+# CARREGAR IMAGEM CORRIGINDO EXIF DO CELULAR
+# ---------------------------------------------------------
+def carregar_imagem_com_exif(file_input):
+    """Lê os bytes da foto e corrige a rotação natural da câmera do celular."""
+    file_bytes = file_input.read()
+    image_pil = Image.open(io.BytesIO(file_bytes))
+    image_pil = ImageOps.exif_transpose(image_pil)
+    image_np = np.array(image_pil.convert("RGB"))
+    return cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
+
+# ---------------------------------------------------------
 # ESTILIZAÇÃO CSS COM CORES DO SÍMBOLO JT E IMAGEM DE FUNDO
 # ---------------------------------------------------------
 def aplicar_estilo_jt():
@@ -59,19 +71,16 @@ def aplicar_estilo_jt():
 
     st.markdown(f"""
         <style>
-        /* Fundo Geral */
         .stApp {{
             {bg_css}
             color: #E2E8F0;
             font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
         }}
 
-        /* Ocultar barra superior padrão do Streamlit */
         header[data-testid="stHeader"] {{
             background: rgba(0, 0, 0, 0);
         }}
 
-        /* Cabeçalho JT Personalizado */
         .jt-header-container {{
             background: linear-gradient(135deg, rgba(16, 26, 50, 0.85) 0%, rgba(8, 14, 28, 0.95) 100%);
             border: 2px solid #FFB800;
@@ -123,7 +132,6 @@ def aplicar_estilo_jt():
             text-shadow: 0 0 8px rgba(255, 42, 75, 0.5);
         }}
 
-        /* Estilização das Abas (Tabs) */
         .stTabs [data-baseweb="tab-list"] {{
             gap: 10px;
             background-color: rgba(10, 16, 32, 0.7);
@@ -148,7 +156,6 @@ def aplicar_estilo_jt():
             box-shadow: 0 0 12px rgba(30, 80, 255, 0.6);
         }}
 
-        /* Botões Customizados */
         .stButton > button {{
             background: linear-gradient(90deg, #1E50FF 0%, #2B60FF 100%) !important;
             color: #FFFFFF !important;
@@ -165,7 +172,6 @@ def aplicar_estilo_jt():
             border-color: #FFFFFF !important;
         }}
 
-        /* Cards e Expander */
         [data-testid="stExpander"] {{
             background: rgba(15, 23, 42, 0.75) !important;
             border: 1px solid rgba(30, 80, 255, 0.4) !important;
@@ -173,7 +179,6 @@ def aplicar_estilo_jt():
             backdrop-filter: blur(10px);
         }}
 
-        /* Métricas */
         [data-testid="stMetricValue"] {{
             color: #FFB800 !important;
             font-weight: 800 !important;
@@ -690,13 +695,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# VISÃO COMPUTACIONAL ADAPTATIVA (PAISAGEM E RETRATO)
+# TRATAMENTO DE ORIENTAÇÃO DA FOTO E RETIFICAÇÃO
 # ---------------------------------------------------------
 def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     """
-    Detecta as 4 âncoras pretas nos cantos do cartão-resposta.
-    Suporta fotos em MODO PAISAGEM ou MODO RETRATO e rotações de 90°, 180° e 270°.
+    Garante que a imagem fique na orientação horizontal correta.
+    Retifica a perspectiva quando as âncoras forem encontradas.
     """
+    h_img, w_img = imagem.shape[:2]
+
+    # Se a foto estiver em pé (retrato), gira para paisagem (deitado)
+    if h_img > w_img:
+        imagem = cv2.rotate(imagem, cv2.ROTATE_90_CLOCKWISE)
+        h_img, w_img = imagem.shape[:2]
+
     gray = cv2.cvtColor(imagem, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     gray_enhanced = clahe.apply(gray)
@@ -707,7 +719,6 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     )
 
     cnts, _ = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    h_img, w_img = imagem.shape[:2]
 
     candidatos = []
     for c in cnts:
@@ -722,8 +733,7 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
                 candidatos.append((cx, cy, area, x, y, w, h))
 
     if len(candidatos) < 4:
-        if h_img > w_img:
-            imagem = cv2.rotate(imagem, cv2.ROTATE_90_CLOCKWISE)
+        # Se for foto recortada de metade sem as 4 âncoras, ajusta a escala mantendo a proporção de paisagem
         return cv2.resize(imagem, (largura, altura))
 
     tl = min(candidatos, key=lambda c: c[0] + c[1])
@@ -733,22 +743,11 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
 
     pts_origem = np.array([[tl[0], tl[1]], [tr[0], tr[1]], [br[0], br[1]], [bl[0], bl[1]]], dtype="float32")
 
-    dist_top = np.linalg.norm(pts_origem[0] - pts_origem[1])
-    dist_left = np.linalg.norm(pts_origem[0] - pts_origem[3])
+    pts_destino = np.array([[0, 0], [largura - 1, 0], [largura - 1, altura - 1], [0, altura - 1]], dtype="float32")
+    M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
+    warped = cv2.warpPerspective(imagem, M, (largura, altura))
 
-    if dist_left > dist_top:
-        pts_destino = np.array([[0, 0], [altura - 1, 0], [altura - 1, largura - 1], [0, largura - 1]], dtype="float32")
-        M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
-        warped = cv2.warpPerspective(imagem, M, (altura, largura))
-        warped = cv2.rotate(warped, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    else:
-        pts_destino = np.array([[0, 0], [largura - 1, 0], [largura - 1, altura - 1], [0, altura - 1]], dtype="float32")
-        M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
-        warped = cv2.warpPerspective(imagem, M, (largura, altura))
-
-    if warped.shape[0] != altura or warped.shape[1] != largura:
-        warped = cv2.resize(warped, (largura, altura))
-
+    # Teste de orientação ponta-cabeça (180°)
     warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
     top_region = warped_gray[10:120, 100:1100]
     bot_region = warped_gray[680:790, 100:1100]
@@ -756,24 +755,23 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     top_edges = np.sum(cv2.Canny(top_region, 50, 150))
     bot_edges = np.sum(cv2.Canny(bot_region, 50, 150))
 
-    if top_edges > bot_edges * 1.15:
+    if top_edges > bot_edges * 1.2:
         warped = cv2.rotate(warped, cv2.ROTATE_180)
 
     return warped
 
 # ---------------------------------------------------------
-# ALGORITMO OMR DE ALTA PRECISÃO (SUPORTE PARCIAL E COMPLETO)
+# ALGORITMO OMR ADAPTATIVO (SUPORTE COMPLETO E METADES)
 # ---------------------------------------------------------
-def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchimento=35.0, q_range_permitido=None):
+def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchimento=35.0, modo="completo"):
     """
-    Analisa o interior das bolinhas (% Fill Ratio).
-    Se q_range_permitido for informado (ex: range(1, 21)), processa apenas aquele intervalo de questões.
+    Processa as bolinhas do cartão-resposta.
+    Modos suportados:
+    - 'completo': Analisa as 4 colunas em 1200x800 px.
+    - 'metade_1': Analisa as 2 colunas da Metade 1 (Q01-20) reajustadas na largura total.
+    - 'metade_2': Analisa as 2 colunas da Metade 2 (Q21-40) reajustadas na largura total.
     """
-    if q_range_permitido is None:
-        q_range_permitido = range(1, 41)
-
     gray = cv2.cvtColor(img_warped, cv2.COLOR_BGR2GRAY)
-    
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     gray_proc = clahe.apply(gray)
     blurred = cv2.GaussianBlur(gray_proc, (3, 3), 0)
@@ -786,20 +784,43 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchi
     largura_total = 1200
     altura_total = 800
 
-    blocos = [
-        (1, 5, 0, 0.285, 0.535),    # Filosofia (Q01 - Q05)
-        (6, 10, 0, 0.625, 0.935),   # História (Q06 - Q10)
-        (11, 15, 1, 0.285, 0.535),  # Geografia (Q11 - Q15)
-        (16, 20, 1, 0.625, 0.935),  # Sociologia (16 - 20)
-        (21, 24, 2, 0.285, 0.485),  # Ed. Física (21 - 24)
-        (25, 30, 2, 0.585, 0.935),  # Inglês (25 - 30)
-        (31, 40, 3, 0.285, 0.935),  # Português (31 - 40)
-    ]
+    # Definição dos blocos das disciplinas [q_start, q_end, col_idx_relativo, y_start_ratio, y_end_ratio]
+    if modo == "completo":
+        q_min, q_max = 1, 40
+        blocos = [
+            (1, 5, 0, 0.285, 0.535),    # Filosofia (Q01 - Q05) - Coluna 0
+            (6, 10, 0, 0.625, 0.935),   # História (Q06 - Q10) - Coluna 0
+            (11, 15, 1, 0.285, 0.535),  # Geografia (Q11 - Q15) - Coluna 1
+            (16, 20, 1, 0.625, 0.935),  # Sociologia (Q16 - Q20) - Coluna 1
+            (21, 24, 2, 0.285, 0.485),  # Ed. Física (Q21 - Q24) - Coluna 2
+            (25, 30, 2, 0.585, 0.935),  # Inglês (Q25 - Q30) - Coluna 2
+            (31, 40, 3, 0.285, 0.935),  # Português (Q31 - Q40) - Coluna 3
+        ]
+        num_colunas_foto = 4.0
+    elif modo == "metade_1":
+        q_min, q_max = 1, 20
+        # Na foto da Metade 1, existem 2 colunas principais no enquadramento
+        blocos = [
+            (1, 5, 0, 0.285, 0.535),    # Filosofia (Q01 - Q05) -> Coluna 0 da Foto 1
+            (6, 10, 0, 0.625, 0.935),   # História (Q06 - Q10) -> Coluna 0 da Foto 1
+            (11, 15, 1, 0.285, 0.535),  # Geografia (Q11 - Q15) -> Coluna 1 da Foto 1
+            (16, 20, 1, 0.625, 0.935),  # Sociologia (Q16 - Q20) -> Coluna 1 da Foto 1
+        ]
+        num_colunas_foto = 2.0
+    else:  # metade_2
+        q_min, q_max = 21, 40
+        # Na foto da Metade 2, a Coluna 2 do gabarito vira a Coluna 0 da Foto 2, e a Coluna 3 vira a Coluna 1
+        blocos = [
+            (21, 24, 0, 0.285, 0.485),  # Ed. Física (Q21 - Q24) -> Coluna 0 da Foto 2
+            (25, 30, 0, 0.585, 0.935),  # Inglês (Q25 - Q30) -> Coluna 0 da Foto 2
+            (31, 40, 1, 0.285, 0.935),  # Português (Q31 - Q40) -> Coluna 1 da Foto 2
+        ]
+        num_colunas_foto = 2.0
 
     for q_start, q_end, col_idx, y_start_ratio, y_end_ratio in blocos:
         num_questoes_bloco = q_end - q_start + 1
-        col_x_start = col_idx * (largura_total / 4.0)
-        col_w = largura_total / 4.0
+        col_w = largura_total / num_colunas_foto
+        col_x_start = col_idx * col_w
 
         b_start_x = col_x_start + col_w * 0.25
         b_end_x = col_x_start + col_w * 0.93
@@ -813,18 +834,15 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchi
         y_block_start = int(y_top_bloco - 15)
         y_block_end = int(y_bot_bloco + 15)
 
-        roi_block = blurred[y_block_start:y_block_end, x_block_start:x_block_end]
+        roi_block = blurred[max(0, y_block_start):min(altura_total, y_block_end),
+                            max(0, x_block_start):min(largura_total, x_block_end)]
         if roi_block.size == 0:
             continue
+
         _, thresh_block = cv2.threshold(roi_block, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
         for row in range(num_questoes_bloco):
             num_questao = q_start + row
-
-            # Se a questão atual não estiver no intervalo permitido para a foto, ignora
-            if num_questao not in q_range_permitido:
-                continue
-
             y_center = y_top_bloco + (row + 0.5) * ((y_bot_bloco - y_top_bloco) / float(num_questoes_bloco))
 
             taxas_preenchimento = []
@@ -959,7 +977,7 @@ with tab_correcao:
             max_value=60.0,
             value=35.0,
             step=1.0,
-            help="Defina a porcentagem mínima de tinta/lápis para considerar a bolinha marcada."
+            help="Defina a porcentagem mínima de tinta para considerar a bolinha marcada."
         )
 
     with col_cam:
@@ -980,7 +998,7 @@ with tab_correcao:
 
         if modo_fotos == "📸 Foto Única (Cartão Completo)":
             if origem == "Câmera":
-                foto = st.camera_input("Posicione o cartão de respostas (Modo Paisagem ou Retrato)")
+                foto = st.camera_input("Posicione o cartão de respostas")
                 if foto:
                     img_input_1 = foto
             else:
@@ -992,13 +1010,13 @@ with tab_correcao:
                 if upload_img:
                     img_input_1 = upload_img
         else:
-            st.caption("📌 **Tire duas fotos aproximadas:** Foto 1 para Q01-20 (Filosofia, História, Geografia, Sociologia) e Foto 2 para Q21-40 (Ed. Física, Inglês, Português).")
+            st.caption("📌 **Enquadre cada metade deitada (horizontal):** Metade 1 (Q01-20) e Metade 2 (Q21-40).")
             c_f1, c_f2 = st.columns(2)
 
             with c_f1:
                 st.markdown("**Foto 1 - Metade 1 (Q01 a Q20)**")
                 if origem == "Câmera":
-                    foto1 = st.camera_input("Foto da Metade 1 (Q01-20)", key="cam_m1")
+                    foto1 = st.camera_input("Metade 1 (Q01-20)", key="cam_m1")
                     if foto1:
                         img_input_1 = foto1
                 else:
@@ -1009,7 +1027,7 @@ with tab_correcao:
             with c_f2:
                 st.markdown("**Foto 2 - Metade 2 (Q21 a Q40)**")
                 if origem == "Câmera":
-                    foto2 = st.camera_input("Foto da Metade 2 (Q21-40)", key="cam_m2")
+                    foto2 = st.camera_input("Metade 2 (Q21-40)", key="cam_m2")
                     if foto2:
                         img_input_2 = foto2
                 else:
@@ -1032,31 +1050,28 @@ with tab_correcao:
             gabarito = gabaritos_todos.get(ano_estudante, gabaritos_todos.get("1º Ano", {}))
 
             if modo_fotos == "📸 Foto Única (Cartão Completo)":
-                file_bytes = np.asarray(bytearray(img_input_1.read()), dtype=np.uint8)
-                img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-
+                img = carregar_imagem_com_exif(img_input_1)
                 img_warped = auto_orientar_e_retificar_completo(img)
+
                 respostas_aluno, img_annotated_1 = ler_respostas_40_questoes(
-                    img_warped, gabarito, limiar_preenchimento=sensibilidade_omr, q_range_permitido=range(1, 41)
+                    img_warped, gabarito, limiar_preenchimento=sensibilidade_omr, modo="completo"
                 )
                 img_annotated_2 = None
             else:
                 # Foto 1 (Q01 a Q20)
-                file_bytes_1 = np.asarray(bytearray(img_input_1.read()), dtype=np.uint8)
-                img1 = cv2.imdecode(file_bytes_1, cv2.IMREAD_COLOR)
+                img1 = carregar_imagem_com_exif(img_input_1)
                 warped1 = auto_orientar_e_retificar_completo(img1)
 
                 resp1, img_annotated_1 = ler_respostas_40_questoes(
-                    warped1, gabarito, limiar_preenchimento=sensibilidade_omr, q_range_permitido=range(1, 21)
+                    warped1, gabarito, limiar_preenchimento=sensibilidade_omr, modo="metade_1"
                 )
 
                 # Foto 2 (Q21 a Q40)
-                file_bytes_2 = np.asarray(bytearray(img_input_2.read()), dtype=np.uint8)
-                img2 = cv2.imdecode(file_bytes_2, cv2.IMREAD_COLOR)
+                img2 = carregar_imagem_com_exif(img_input_2)
                 warped2 = auto_orientar_e_retificar_completo(img2)
 
                 resp2, img_annotated_2 = ler_respostas_40_questoes(
-                    warped2, gabarito, limiar_preenchimento=sensibilidade_omr, q_range_permitido=range(21, 41)
+                    warped2, gabarito, limiar_preenchimento=sensibilidade_omr, modo="metade_2"
                 )
 
                 respostas_aluno = {}
