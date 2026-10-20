@@ -699,12 +699,11 @@ st.markdown("""
 # ---------------------------------------------------------
 def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     """
-    Detecta as âncoras pretas nos cantos da imagem e projeta o cartão exatamente
-    nas coordenadas oficiais de gabarito para perfeita sobreposição.
+    Detecta as âncoras pretas situadas exclusivamente nos 4 cantos externos da folha
+    e realiza a projeção perspectiva precisa do cartão.
     """
     h_img, w_img = imagem.shape[:2]
 
-    # Garante orientação horizontal (paisagem)
     if h_img > w_img:
         imagem = cv2.rotate(imagem, cv2.ROTATE_90_CLOCKWISE)
         h_img, w_img = imagem.shape[:2]
@@ -723,16 +722,21 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     candidatos = []
     for c in cnts:
         area = cv2.contourArea(c)
-        if 30 < area < (w_img * h_img * 0.05):
+        if 20 < area < (w_img * h_img * 0.04):
             x, y, w, h = cv2.boundingRect(c)
             aspect = float(w) / h
             extent = area / float(w * h)
-            if 0.55 <= aspect <= 1.45 and extent > 0.45:
+            if 0.55 <= aspect <= 1.45 and extent > 0.40:
                 cx = int(x + w / 2.0)
                 cy = int(y + h / 2.0)
                 candidatos.append((cx, cy, area, x, y, w, h))
 
-    # Coordenadas reais das âncoras no template oficial
+    # Separação por quadrantes nos cantos da folha para ignorar bolinhas marcadas
+    q_tl = [c for c in candidatos if c[0] < w_img * 0.30 and c[1] < h_img * 0.30]
+    q_tr = [c for c in candidatos if c[0] > w_img * 0.70 and c[1] < h_img * 0.30]
+    q_br = [c for c in candidatos if c[0] > w_img * 0.70 and c[1] > h_img * 0.70]
+    q_bl = [c for c in candidatos if c[0] < w_img * 0.30 and c[1] > h_img * 0.70]
+
     m_x, m_y = 35.0, 35.0
     pts_destino = np.array([
         [m_x, m_y], 
@@ -741,20 +745,19 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
         [m_x, altura - m_y]
     ], dtype="float32")
 
-    if len(candidatos) >= 4:
-        tl = min(candidatos, key=lambda c: c[0] + c[1])
-        tr = max(candidatos, key=lambda c: c[0] - c[1])
-        br = max(candidatos, key=lambda c: c[0] + c[1])
-        bl = min(candidatos, key=lambda c: c[0] - c[1])
+    if q_tl and q_tr and q_br and q_bl:
+        tl = min(q_tl, key=lambda c: c[0] + c[1])
+        tr = max(q_tr, key=lambda c: c[0] - c[1])
+        br = max(q_br, key=lambda c: c[0] + c[1])
+        bl = min(q_bl, key=lambda c: c[0] - c[1])
 
         pts_origem = np.array([[tl[0], tl[1]], [tr[0], tr[1]], [br[0], br[1]], [bl[0], bl[1]]], dtype="float32")
-
         M = cv2.getPerspectiveTransform(pts_origem, pts_destino)
         warped = cv2.warpPerspective(imagem, M, (largura, altura))
     else:
         warped = cv2.resize(imagem, (largura, altura))
 
-    # Verifica ponta-cabeça (180°)
+    # Ajuste de rotação caso esteja de ponta-cabeça (180°)
     warped_gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
     top_region = warped_gray[10:120, 100:1100]
     bot_region = warped_gray[680:790, 100:1100]
@@ -768,12 +771,11 @@ def auto_orientar_e_retificar_completo(imagem, largura=1200, altura=800):
     return warped
 
 # ---------------------------------------------------------
-# ALGORITMO OMR ADAPTATIVO COM TRANSLAÇÃO VERTICAL PRECISA
+# ALGORITMO OMR ADAPTATIVO COM POSICIONAMENTO RECALIBRADO
 # ---------------------------------------------------------
 def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchimento=35.0, modo="completo"):
     """
-    Mapeia e lê as respostas com o alinhamento de translação calibrado
-    para sobrepor exatamente o centro das bolinhas do gabarito.
+    Mapeia e lê as respostas com translação vertical calibrada no centro das bolinhas.
     """
     gray = cv2.cvtColor(img_warped, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
@@ -788,31 +790,31 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchi
     largura_total = 1200
     altura_total = 800
 
-    # Coordenadas recalibradas para acertar o centro exato das bolinhas em Y
+    # Coordenadas calibradas para centralização vertical e horizontal perfeita
     if modo == "completo":
         blocos = [
-            (1, 5, 0, 0.321, 0.584),    # Filosofia (Q01-05)
-            (6, 10, 0, 0.642, 0.905),   # História (Q06-10)
-            (11, 15, 1, 0.321, 0.584),  # Geografia (Q11-15)
-            (16, 20, 1, 0.642, 0.905),  # Sociologia (Q16-20)
-            (21, 24, 2, 0.321, 0.531),  # Ed. Física (Q21-24)
-            (25, 30, 2, 0.588, 0.905),  # Inglês (Q25-30)
-            (31, 40, 3, 0.318, 0.908),  # Português (Q31-40)
+            (1, 5, 0, 0.352, 0.610),    # Filosofia (Q01-05)
+            (6, 10, 0, 0.690, 0.948),   # História (Q06-10)
+            (11, 15, 1, 0.352, 0.610),  # Geografia (Q11-15)
+            (16, 20, 1, 0.690, 0.948),  # Sociologia (Q16-20)
+            (21, 24, 2, 0.352, 0.560),  # Ed. Física (Q21-24)
+            (25, 30, 2, 0.642, 0.948),  # Inglês (Q25-30)
+            (31, 40, 3, 0.348, 0.952),  # Português (Q31-40)
         ]
         num_colunas_foto = 4.0
     elif modo == "metade_1":
         blocos = [
-            (1, 5, 0, 0.321, 0.584),    # Filosofia -> Coluna 0 da Foto 1
-            (6, 10, 0, 0.642, 0.905),   # História -> Coluna 0 da Foto 1
-            (11, 15, 1, 0.321, 0.584),  # Geografia -> Coluna 1 da Foto 1
-            (16, 20, 1, 0.642, 0.905),  # Sociologia -> Coluna 1 da Foto 1
+            (1, 5, 0, 0.352, 0.610),    # Filosofia
+            (6, 10, 0, 0.690, 0.948),   # História
+            (11, 15, 1, 0.352, 0.610),  # Geografia
+            (16, 20, 1, 0.690, 0.948),  # Sociologia
         ]
         num_colunas_foto = 2.0
     else:  # metade_2
         blocos = [
-            (21, 24, 0, 0.321, 0.531),  # Ed. Física -> Coluna 0 da Foto 2
-            (25, 30, 0, 0.588, 0.905),  # Inglês -> Coluna 0 da Foto 2
-            (31, 40, 1, 0.318, 0.908),  # Português -> Coluna 1 da Foto 2
+            (21, 24, 0, 0.352, 0.560),  # Ed. Física
+            (25, 30, 0, 0.642, 0.948),  # Inglês
+            (31, 40, 1, 0.348, 0.952),  # Português
         ]
         num_colunas_foto = 2.0
 
@@ -896,7 +898,7 @@ def ler_respostas_40_questoes(img_warped, gabarito_oficial=None, limiar_preenchi
             for opt_idx, (bx, by) in enumerate(coords_opcoes):
                 opcao_letra = opcoes[opt_idx]
 
-                # Anel guia azul-ciano indicando a posição calculada
+                # Anel guia azul-ciano centralizado no gabarito
                 cv2.circle(img_annotated, (bx, by), 12, (255, 255, 0), 1)
 
                 if opt_idx == idx_marcado:
