@@ -144,7 +144,7 @@ def extrair_respostas_com_gemini(pil_image, api_key):
     genai.configure(api_key=api_key)
     
     # Utiliza o modelo multimodal Gemini
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.5-flash")
 
     prompt = """
     Você é um sistema especialista em Leitura Óptica de Cartão-Resposta (OMR).
