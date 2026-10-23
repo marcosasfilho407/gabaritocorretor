@@ -140,11 +140,17 @@ def extrair_respostas_com_gemini(pil_image, api_key):
     """
     Envia a foto do cartão de respostas para a API do Gemini Vision
     e retorna um dicionário Python {1: 'A', 2: 'B', ..., 40: 'D'}.
+    Com suporte a múltiplos modelos candidatos (fallback).
     """
     genai.configure(api_key=api_key)
     
-    # Utiliza o modelo multimodal Gemini
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    # Modelos disponíveis em ordem de preferência
+    modelos_candidatos = [
+        "gemini-2.0-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro-latest",
+        "gemini-1.5-flash"
+    ]
 
     prompt = """
     Você é um sistema especialista em Leitura Óptica de Cartão-Resposta (OMR).
@@ -168,7 +174,21 @@ def extrair_respostas_com_gemini(pil_image, api_key):
     }
     """
 
-    response = model.generate_content([pil_image, prompt])
+    response = None
+    ultimo_erro = None
+
+    for nome_modelo in modelos_candidatos:
+        try:
+            model = genai.GenerativeModel(nome_modelo)
+            response = model.generate_content([pil_image, prompt])
+            break  # Sucesso no envio
+        except Exception as e:
+            ultimo_erro = e
+            continue
+
+    if response is None:
+        raise ValueError(f"Não foi possível conectar a nenhum modelo do Gemini. Detalhes: {ultimo_erro}")
+
     raw_text = response.text.strip()
     
     # Limpeza de formato Markdown no JSON caso a API devolva ```json ... ```
