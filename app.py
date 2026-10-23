@@ -138,14 +138,8 @@ def obter_disciplina(q):
 # MÓDULO VISUAL GEMINI COM RESPOSTA ESTRUTURADA EM JSON
 # ---------------------------------------------------------
 def extrair_respostas_com_gemini(pil_image, api_key):
-    """
-    Envia a foto do cartão de respostas para a API do Gemini Vision
-    e retorna um dicionário Python {1: 'A', 2: 'B', ..., 40: 'D'}.
-    Com resposta estruturada JSON e parser via Regex.
-    """
     genai.configure(api_key=api_key)
 
-    # Deteção dinâmica de modelos ativos na conta
     modelos_disponiveis = []
     try:
         for m in genai.list_models():
@@ -199,7 +193,6 @@ def extrair_respostas_com_gemini(pil_image, api_key):
     for nome_modelo in candidatos:
         try:
             model = genai.GenerativeModel(nome_modelo)
-            # Solicita saída JSON nativa
             response = model.generate_content(
                 [pil_image, prompt],
                 generation_config={"response_mime_type": "application/json"}
@@ -207,7 +200,6 @@ def extrair_respostas_com_gemini(pil_image, api_key):
             break
         except Exception:
             try:
-                # Tenta sem o parâmetro mime_type em modelos mais antigos
                 model = genai.GenerativeModel(nome_modelo)
                 response = model.generate_content([pil_image, prompt])
                 break
@@ -220,12 +212,8 @@ def extrair_respostas_com_gemini(pil_image, api_key):
 
     raw_text = response.text.strip()
 
-    # Extrai estritamente o bloco JSON entre '{' e '}' caso exista texto adicional
     match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-    if match:
-        json_str = match.group(0)
-    else:
-        json_str = raw_text
+    json_str = match.group(0) if match else raw_text
 
     try:
         json_data = json.loads(json_str)
@@ -264,8 +252,8 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-tab_correcao, tab_gabarito, tab_estudantes, tab_relatorio = st.tabs([
-    "📷 Corrigir Prova com Gemini", "📝 Gabaritos Oficiais", "👥 Estudantes por Turma", "📊 Resultados da Turma"
+tab_correcao, tab_manual, tab_gabarito, tab_estudantes, tab_relatorio = st.tabs([
+    "📷 Corrigir Prova com IA", "✍️ Lançamento Manual", "📝 Gabaritos Oficiais", "👥 Estudantes por Turma", "📊 Resultados da Turma"
 ])
 
 # ---------------------------------------------------------
@@ -328,12 +316,10 @@ with tab_correcao:
                         except Exception as err:
                             st.error(f"Erro ao processar imagem com o Gemini: {err}")
 
-    # Exibição dos Resultados da Correção
     if "respostas_extraidas" in st.session_state:
         respostas_aluno, nome_aluno, turma_selecionada, ano_estudante, num_aluno, mat_aluno = st.session_state["respostas_extraidas"]
         gabarito_oficial = st.session_state["gabaritos_oficiais"].get(ano_estudante, {})
 
-        # Comparação das respostas lidas com o gabarito oficial
         detalhes = []
         total_acertos = 0
         total_por_disc = {
@@ -371,7 +357,6 @@ with tab_correcao:
         m2.metric("Nota Final", f"{nota:.2f} / 10.0")
         m3.metric("Estudante / Turma", f"{nome_aluno} ({turma_selecionada})")
 
-        # Exibição de desempenho por disciplina
         cols_disc = st.columns(len(acertos_por_disc))
         for i, (d_nome, d_acertos) in enumerate(acertos_por_disc.items()):
             cols_disc[i].metric(d_nome.split(" ")[0], f"{d_acertos}/{total_por_disc.get(d_nome, 5)}")
@@ -398,7 +383,108 @@ with tab_correcao:
         st.dataframe(pd.DataFrame(detalhes), height=400, use_container_width=True)
 
 # ---------------------------------------------------------
-# ABA 2: GABARITOS OFICIAIS
+# ABA 2: LANÇAMENTO MANUAL DE NOTAS
+# ---------------------------------------------------------
+with tab_manual:
+    st.header("✍️ Lançamento Manual de Nota")
+    st.markdown("Utilize esta opção para lançar notas de cartões corrigidos manualmente ou fora da aplicação.")
+
+    col_m_aluno, col_m_nota = st.columns([1, 1])
+
+    with col_m_aluno:
+        st.subheader("1. Identificação do Estudante")
+        dados_turmas = st.session_state["dados_turmas"]
+        lista_turmas = list(dados_turmas.keys())
+
+        turma_man = st.selectbox("Selecione a Turma:", options=lista_turmas, key="turma_man")
+        ano_estudante_man = obter_ano_da_turma(turma_man)
+        alunos_man = dados_turmas.get(turma_man, [])
+
+        opcoes_alunos_man = [f"Nº {a['numero']} - {a['nome']}" if a["numero"] else a["nome"] for a in alunos_man]
+
+        if opcoes_alunos_man:
+            aluno_idx_man = st.selectbox("Selecione o Aluno:", range(len(opcoes_alunos_man)), format_func=lambda i: opcoes_alunos_man[i], key="aluno_man")
+            aluno_obj_man = alunos_man[aluno_idx_man]
+            nome_m, num_m, mat_m = aluno_obj_man["nome"], aluno_obj_man["numero"], aluno_obj_man["matricula"]
+        else:
+            nome_m = st.text_input("Nome do Aluno:", key="nome_m_custom")
+            num_m, mat_m = "", ""
+
+        with st.expander("📄 Ficha do Aluno", expanded=True):
+            st.markdown(f"**Nome:** {nome_m}")
+            st.markdown(f"**Turma:** {turma_man} | **Nº Chamada:** {num_m if num_m else 'N/A'}")
+            st.info(f"🎯 **Série / Ano:** {ano_estudante_man}")
+
+    with col_m_nota:
+        st.subheader("2. Lançamento da Nota")
+        
+        tipo_entrada = st.radio("Modo de Entrada:", ["Total de Acertos (0 a 40)", "Nota Final Direta (0 a 10)"], horizontal=True)
+
+        if tipo_entrada == "Total de Acertos (0 a 40)":
+            acertos_m = st.number_input("Total de Acertos (0 a 40):", min_value=0, max_value=40, value=20, step=1)
+            nota_m = (acertos_m / 40.0) * 10.0
+            st.metric("Nota Calculada", f"{nota_m:.2f} / 10.0")
+        else:
+            nota_m = st.number_input("Nota Final (0.0 a 10.0):", min_value=0.0, max_value=10.0, value=7.0, step=0.1)
+            acertos_m = int(round((nota_m / 10.0) * 40))
+            st.metric("Acertos Estimados", f"{acertos_m} / 40")
+
+        st.divider()
+        com_detalhamento = st.checkbox("Deseja informar o acerto específico por disciplina?")
+
+        acertos_disc_man = {}
+        if com_detalhamento:
+            st.caption("Informe os acertos por matéria:")
+            c_d1, c_d2 = st.columns(2)
+            
+            acertos_disc_man["Filosofia"] = c_d1.number_input("Filosofia (máx 5):", 0, 5, 0)
+            acertos_disc_man["História"] = c_d1.number_input("História (máx 5):", 0, 5, 0)
+            acertos_disc_man["Geografia"] = c_d1.number_input("Geografia (máx 5):", 0, 5, 0)
+            acertos_disc_man["Sociologia"] = c_d1.number_input("Sociologia (máx 5):", 0, 5, 0)
+            
+            acertos_disc_man["Educação"] = c_d2.number_input("Educação Física (máx 4):", 0, 4, 0)
+            acertos_disc_man["Inglês"] = c_d2.number_input("Inglês (máx 6):", 0, 6, 0)
+            acertos_disc_man["Português"] = c_d2.number_input("Português (máx 10):", 0, 10, 0)
+
+            soma_acertos = sum(acertos_disc_man.values())
+            st.info(f"Soma dos acertos inseridos: **{soma_acertos} / 40**")
+            acertos_m = soma_acertos
+            nota_m = (acertos_m / 40.0) * 10.0
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("💾 Salvar Nota Manual no Histórico", type="primary", use_container_width=True):
+            if not nome_m:
+                st.warning("⚠️ Selecione ou informe o nome do aluno.")
+            else:
+                registro_m = {
+                    "Série": ano_estudante_man,
+                    "Turma": turma_man,
+                    "Nº": num_m,
+                    "Matrícula": mat_m,
+                    "Aluno": nome_m,
+                    "Total Acertos": acertos_m,
+                    "Nota Final": round(nota_m, 2)
+                }
+
+                if com_detalhamento:
+                    registro_m["Filosofia"] = f"{acertos_disc_man['Filosofia']}/5"
+                    registro_m["História"] = f"{acertos_disc_man['História']}/5"
+                    registro_m["Geografia"] = f"{acertos_disc_man['Geografia']}/5"
+                    registro_m["Sociologia"] = f"{acertos_disc_man['Sociologia']}/5"
+                    registro_m["Educação"] = f"{acertos_disc_man['Educação']}/4"
+                    registro_m["Inglês"] = f"{acertos_disc_man['Inglês']}/6"
+                    registro_m["Português"] = f"{acertos_disc_man['Português']}/10"
+                else:
+                    total_por_disc = {"Filosofia": 5, "História": 5, "Geografia": 5, "Sociologia": 5, "Educação": 4, "Inglês": 6, "Português": 10}
+                    for d_key in total_por_disc.keys():
+                        registro_m[d_key] = "N/A"
+
+                st.session_state["historico"].append(registro_m)
+                salvar_historico_em_disco(st.session_state["historico"])
+                st.success(f"✅ Nota do estudante **{nome_m}** ({nota_m:.2f}) salva com sucesso no histórico!")
+
+# ---------------------------------------------------------
+# ABA 3: GABARITOS OFICIAIS
 # ---------------------------------------------------------
 with tab_gabarito:
     st.header("Cadastrar e Gerenciar Gabaritos Oficiais")
@@ -426,7 +512,7 @@ with tab_gabarito:
         st.success(f"Gabarito do {ano_gab_sel} salvo com sucesso!")
 
 # ---------------------------------------------------------
-# ABA 3: ESTUDANTES
+# ABA 4: ESTUDANTES
 # ---------------------------------------------------------
 with tab_estudantes:
     st.header("Lista de Estudantes Cadastrados por Turma")
@@ -435,7 +521,7 @@ with tab_estudantes:
     st.dataframe(pd.DataFrame(turmas_map.get(t_sel, [])), use_container_width=True)
 
 # ---------------------------------------------------------
-# ABA 4: RELATÓRIO
+# ABA 5: RELATÓRIO
 # ---------------------------------------------------------
 with tab_relatorio:
     st.header("Relatório Geral das Correções")
