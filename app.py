@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import base64
 import pandas as pd
 import streamlit as st
@@ -134,17 +135,17 @@ def obter_disciplina(q):
     return "Desconhecida"
 
 # ---------------------------------------------------------
-# MÓDULO VISUAL GEMINI COM DETEÇÃO DINÂMICA DE MODELO
+# MÓDULO VISUAL GEMINI COM RESPOSTA ESTRUTURADA EM JSON
 # ---------------------------------------------------------
 def extrair_respostas_com_gemini(pil_image, api_key):
     """
     Envia a foto do cartão de respostas para a API do Gemini Vision
     e retorna um dicionário Python {1: 'A', 2: 'B', ..., 40: 'D'}.
-    Deteta dinamicamente os modelos ativos associados à chave de API.
+    Com resposta estruturada JSON e parser via Regex.
     """
     genai.configure(api_key=api_key)
 
-    # 1. Consulta dinâmica dos modelos suportados para generateContent
+    # Deteção dinâmica de modelos ativos na conta
     modelos_disponiveis = []
     try:
         for m in genai.list_models():
@@ -154,7 +155,6 @@ def extrair_respostas_com_gemini(pil_image, api_key):
     except Exception:
         pass
 
-    # 2. Ordenação por preferência com fallback dinâmico
     preferidos = [
         "gemini-2.0-flash",
         "gemini-1.5-flash",
@@ -181,9 +181,9 @@ def extrair_respostas_com_gemini(pil_image, api_key):
     - Se uma questão não tiver nenhuma bolinha pintada ou apresentar múltiplas marcas/rasuras, defina o valor como "Branco/Nulo".
 
     Formato de Saída OBRIGATÓRIO:
-    Retorne ESTRITAMENTE um objeto JSON válido onde as chaves sejam as questões como strings de "1" a "40" e os valores sejam a letra maiúscula correspondente ("A", "B", "C", "D", "E" ou "Branco/Nulo"). Não adicione marcações markdown nem explicações.
+    Retorne ESTRITAMENTE um objeto JSON válido onde as chaves sejam as questões como strings de "1" a "40" e os valores sejam a letra maiúscula correspondente ("A", "B", "C", "D", "E" ou "Branco/Nulo"). Não adicione nenhuma explicação, introdução ou raciocínio.
 
-    Exemplo do formato esperado:
+    Exemplo de formato:
     {
       "1": "B",
       "2": "C",
@@ -199,32 +199,40 @@ def extrair_respostas_com_gemini(pil_image, api_key):
     for nome_modelo in candidatos:
         try:
             model = genai.GenerativeModel(nome_modelo)
-            response = model.generate_content([pil_image, prompt])
-            break  # Processamento bem-sucedido
-        except Exception as e:
-            ultimo_erro = e
-            continue
+            # Solicita saída JSON nativa
+            response = model.generate_content(
+                [pil_image, prompt],
+                generation_config={"response_mime_type": "application/json"}
+            )
+            break
+        except Exception:
+            try:
+                # Tenta sem o parâmetro mime_type em modelos mais antigos
+                model = genai.GenerativeModel(nome_modelo)
+                response = model.generate_content([pil_image, prompt])
+                break
+            except Exception as e:
+                ultimo_erro = e
+                continue
 
     if response is None:
         raise ValueError(f"Não foi possível conectar a nenhum modelo do Gemini. Detalhes: {ultimo_erro}")
 
     raw_text = response.text.strip()
 
-    # Limpeza de formato Markdown no JSON
-    if raw_text.startswith("```"):
-        lines = raw_text.splitlines()
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        raw_text = "\n".join(lines).strip()
+    # Extrai estritamente o bloco JSON entre '{' e '}' caso exista texto adicional
+    match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+    if match:
+        json_str = match.group(0)
+    else:
+        json_str = raw_text
 
     try:
-        json_data = json.loads(raw_text)
+        json_data = json.loads(json_str)
         respostas_aluno = {int(k): str(v).upper() for k, v in json_data.items()}
         return respostas_aluno
     except Exception as e:
-        raise ValueError(f"Erro ao interpretar resposta do Gemini: {e}\nTexto bruto recebido: {raw_text}")
+        raise ValueError(f"Erro ao interpretar resposta do Gemini: {e}\nTexto bruto recebido:\n{raw_text}")
 
 # ---------------------------------------------------------
 # INTERFACE PRINCIPAL STREAMLIT
