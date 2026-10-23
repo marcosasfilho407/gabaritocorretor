@@ -15,7 +15,8 @@ ARQUIVO_GABARITOS_JSON = "gabaritos_oficiais.json"
 ARQUIVO_HISTORICO_JSON = "historico_correcoes.json"
 ARQUIVO_ALUNOS_TXT = "todososalunosporturma.txt"
 
-DISCIPLINAS_MAP = {
+# Estrutura de disciplinas do 1º e 2º Dia de Simulado
+DISCIPLINAS_MAP_DIA1 = {
     "Filosofia (01-05)": range(1, 6),
     "História (06-10)": range(6, 11),
     "Geografia (11-15)": range(11, 16),
@@ -23,6 +24,19 @@ DISCIPLINAS_MAP = {
     "Educação Física (21-24)": range(21, 25),
     "Inglês (25-30)": range(25, 31),
     "Português (31-40)": range(31, 41),
+}
+
+DISCIPLINAS_MAP_DIA2 = {
+    "Matemática (01-12)": range(1, 13),
+    "Física (13-20)": range(13, 21),
+    "Química (21-28)": range(21, 29),
+    "Biologia (29-35)": range(29, 36),
+    "Artes (36-40)": range(36, 41),
+}
+
+DISCIPLINAS_POR_DIA = {
+    "1º Dia": DISCIPLINAS_MAP_DIA1,
+    "2º Dia": DISCIPLINAS_MAP_DIA2
 }
 
 ALUNOS_3D_DEFAULT = [
@@ -112,9 +126,12 @@ DADOS_ALUNOS_EMBUTIDOS = """Turma,Número,Matrícula,Nome
 1º A,3,3989573,ARTHUR GUSMAO SILVA CAMPELO"""
 
 GABARITOS_DEFAULT = {
-    "1º Ano": {q: "ABCDE"[(q - 1) % 5] for q in range(1, 41)},
-    "2º Ano": {q: "BCDEA"[(q - 1) % 5] for q in range(1, 41)},
-    "3º Ano": {q: "CDEAB"[(q - 1) % 5] for q in range(1, 41)},
+    "1º Ano - 1º Dia": {q: "ABCDE"[(q - 1) % 5] for q in range(1, 41)},
+    "2º Ano - 1º Dia": {q: "BCDEA"[(q - 1) % 5] for q in range(1, 41)},
+    "3º Ano - 1º Dia": {q: "CDEAB"[(q - 1) % 5] for q in range(1, 41)},
+    "1º Ano - 2º Dia": {q: "ABCDE"[(q - 1) % 5] for q in range(1, 41)},
+    "2º Ano - 2º Dia": {q: "BCDEA"[(q - 1) % 5] for q in range(1, 41)},
+    "3º Ano - 2º Dia": {q: "CDEAB"[(q - 1) % 5] for q in range(1, 41)},
 }
 
 def salvar_gabaritos_em_disco(gabaritos_dict):
@@ -126,7 +143,21 @@ def carregar_gabaritos_do_disco():
         try:
             with open(ARQUIVO_GABARITOS_JSON, "r", encoding="utf-8") as f:
                 dados = json.load(f)
-            return {ano: {int(q): str(r) for q, r in gab.items()} for ano, gab in dados.items()}
+            
+            gabaritos_tratados = {}
+            for chave, gab in dados.items():
+                # Garante compatibilidade retroativa para chaves sem "- 1º Dia"
+                if " - " not in chave:
+                    nova_chave = f"{chave} - 1º Dia"
+                else:
+                    nova_chave = chave
+                gabaritos_tratados[nova_chave] = {int(q): str(r) for q, r in gab.items()}
+            
+            # Preenche chaves padrão faltantes se necessário
+            for k, v in GABARITOS_DEFAULT.items():
+                if k not in gabaritos_tratados:
+                    gabaritos_tratados[k] = v.copy()
+            return gabaritos_tratados
         except Exception:
             pass
     return GABARITOS_DEFAULT.copy()
@@ -139,7 +170,12 @@ def carregar_historico_do_disco():
     if os.path.exists(ARQUIVO_HISTORICO_JSON):
         try:
             with open(ARQUIVO_HISTORICO_JSON, "r", encoding="utf-8") as f:
-                return json.load(f)
+                dados = json.load(f)
+                # Garante que registros antigos tenham o campo "Dia" definido como "1º Dia"
+                for h in dados:
+                    if "Dia" not in h:
+                        h["Dia"] = "1º Dia"
+                return dados
         except Exception:
             pass
     return []
@@ -162,7 +198,6 @@ def carregar_estudantes():
             for _, r in group.iterrows()
         ]
     
-    # Inclusão forçada da Turma 3º D caso não esteja no arquivo lido
     if "3º D" not in turmas and "3D" not in turmas:
         turmas["3º D"] = ALUNOS_3D_DEFAULT
 
@@ -171,8 +206,9 @@ def carregar_estudantes():
 def obter_ano_da_turma(turma):
     return "1º Ano" if "1º" in turma else "2º Ano" if "2º" in turma else "3º Ano"
 
-def obter_disciplina(q):
-    for disc, q_range in DISCIPLINAS_MAP.items():
+def obter_disciplina(q, dia="1º Dia"):
+    disc_map = DISCIPLINAS_POR_DIA.get(dia, DISCIPLINAS_MAP_DIA1)
+    for disc, q_range in disc_map.items():
         if q in q_range:
             return disc
     return "Desconhecida"
@@ -180,7 +216,7 @@ def obter_disciplina(q):
 # ---------------------------------------------------------
 # MÓDULO VISUAL GEMINI COM RESPOSTA ESTRUTURADA EM JSON
 # ---------------------------------------------------------
-def extrair_respostas_com_gemini(pil_image, api_key):
+def extrair_respostas_com_gemini(pil_image, api_key, dia="1º Dia"):
     genai.configure(api_key=api_key)
 
     modelos_disponiveis = []
@@ -208,12 +244,17 @@ def extrair_respostas_com_gemini(pil_image, api_key):
         if d not in candidatos:
             candidatos.append(d)
 
-    prompt = """
+    if dia == "2º Dia":
+        desc_disciplinas = "disciplinas do 2º Dia (Matemática 01-12, Física 13-20, Química 21-28, Biologia 29-35, Artes 36-40)"
+    else:
+        desc_disciplinas = "disciplinas do 1º Dia (Filosofia 01-05, História 06-10, Geografia 11-15, Sociologia 16-20, Educação Física 21-24, Inglês 25-30, Português 31-40)"
+
+    prompt = f"""
     Você é um sistema especialista em Leitura Óptica de Cartão-Resposta (OMR).
     Analise esta imagem do 'CARTÃO-RESPOSTA - Simulado Trimestral' e extraia a opção preenchida/marcada pelo estudante para cada uma das 40 questões.
 
     Instruções de Análise:
-    - O cartão contém 40 questões numeradas de 01 a 40 divididas em disciplinas (Filosofia 01-05, História 06-10, Geografia 11-15, Sociologia 16-20, Educação Física 21-24, Inglês 25-30, Português 31-40).
+    - O cartão contém 40 questões numeradas de 01 a 40 divididas nas {desc_disciplinas}.
     - Para cada questão de 1 a 40, identifique qual das opções (A, B, C, D ou E) está pintada/preenchida.
     - Se uma questão não tiver nenhuma bolinha pintada ou apresentar múltiplas marcas/rasuras, defina o valor como "Branco/Nulo".
 
@@ -221,13 +262,13 @@ def extrair_respostas_com_gemini(pil_image, api_key):
     Retorne ESTRITAMENTE um objeto JSON válido onde as chaves sejam as questões como strings de "1" a "40" e os valores sejam a letra maiúscula correspondente ("A", "B", "C", "D", "E" ou "Branco/Nulo"). Não adicione nenhuma explicação, introdução ou raciocínio.
 
     Exemplo de formato:
-    {
+    {{
       "1": "B",
       "2": "C",
       "3": "A",
       ...
       "40": "D"
-    }
+    }}
     """
 
     response = None
@@ -271,7 +312,6 @@ def extrair_respostas_com_gemini(pil_image, api_key):
 st.set_page_config(page_title="EREM Joaquim Távora - Corretor OMR Gemini", layout="wide", page_icon="📌")
 aplicar_estilo_jt()
 
-# Força o recarregamento dos estudantes na sessão caso ainda não contenha a Turma 3º D
 st.session_state["dados_turmas"] = carregar_estudantes()
 
 if "gabaritos_oficiais" not in st.session_state:
@@ -310,6 +350,9 @@ with tab_correcao:
 
     with col_info:
         st.subheader("1. Identificação do Estudante")
+        
+        dia_selecionado = st.selectbox("Selecione o Dia do Simulado:", options=["1º Dia", "2º Dia"], index=0)
+        
         dados_turmas = st.session_state["dados_turmas"]
         lista_turmas = list(dados_turmas.keys())
 
@@ -326,10 +369,12 @@ with tab_correcao:
         else:
             nome_aluno, num_aluno, mat_aluno = st.text_input("Nome do Aluno:"), "", ""
 
+        chave_gabarito_ativa = f"{ano_estudante} - {dia_selecionado}"
+
         with st.expander("📄 Ficha do Aluno e Gabarito Ativo", expanded=True):
             st.markdown(f"**Nome:** {nome_aluno}")
             st.markdown(f"**Turma:** {turma_selecionada} | **Nº Chamada:** {num_aluno if num_aluno else 'N/A'}")
-            st.info(f"🎯 **Gabarito Oficial Vinculado:** {ano_estudante}")
+            st.info(f"🎯 **Gabarito Vinculado:** {chave_gabarito_ativa}")
 
     with col_cam:
         st.subheader("2. Foto do Cartão-Resposta")
@@ -352,36 +397,36 @@ with tab_correcao:
                 elif not nome_aluno:
                     st.warning("⚠️ Selecione ou informe o nome do aluno.")
                 else:
-                    with st.spinner("🤖 O Gemini está analisando a imagem e extraindo as respostas..."):
+                    with st.spinner(f"🤖 O Gemini está analisando as respostas do {dia_selecionado}..."):
                         try:
-                            respostas_aluno = extrair_respostas_com_gemini(pil_image, gemini_key)
-                            st.session_state["respostas_extraidas"] = (respostas_aluno, nome_aluno, turma_selecionada, ano_estudante, num_aluno, mat_aluno)
+                            respostas_aluno = extrair_respostas_com_gemini(pil_image, gemini_key, dia_selecionado)
+                            st.session_state["respostas_extraidas"] = (respostas_aluno, nome_aluno, turma_selecionada, ano_estudante, num_aluno, mat_aluno, dia_selecionado)
                             st.success("Extração visual concluída com sucesso!")
                         except Exception as err:
                             st.error(f"Erro ao processar imagem com o Gemini: {err}")
 
     if "respostas_extraidas" in st.session_state:
-        respostas_aluno, nome_aluno, turma_selecionada, ano_estudante, num_aluno, mat_aluno = st.session_state["respostas_extraidas"]
-        gabarito_oficial = st.session_state["gabaritos_oficiais"].get(ano_estudante, {})
+        respostas_aluno, nome_aluno, turma_selecionada, ano_estudante, num_aluno, mat_aluno, dia_sel = st.session_state["respostas_extraidas"]
+        
+        chave_gab = f"{ano_estudante} - {dia_sel}"
+        gabarito_oficial = st.session_state["gabaritos_oficiais"].get(chave_gab, {})
 
         detalhes = []
         total_acertos = 0
-        total_por_disc = {
-            "Filosofia (01-05)": 5, "História (06-10)": 5, "Geografia (11-15)": 5,
-            "Sociologia (16-20)": 5, "Educação Física (21-24)": 4,
-            "Inglês (25-30)": 6, "Português (31-40)": 10
-        }
-        acertos_por_disc = {disc: 0 for disc in total_por_disc.keys()}
+        
+        disc_map = DISCIPLINAS_POR_DIA[dia_sel]
+        acertos_por_disc = {disc: 0 for disc in disc_map.keys()}
 
         for q in range(1, 41):
             resp = respostas_aluno.get(q, "Branco/Nulo")
             gab = gabarito_oficial.get(q, "-")
             correto = (resp == gab)
-            disc = obter_disciplina(q)
+            disc = obter_disciplina(q, dia_sel)
 
             if correto:
                 total_acertos += 1
-                acertos_por_disc[disc] += 1
+                if disc in acertos_por_disc:
+                    acertos_por_disc[disc] += 1
 
             detalhes.append({
                 "Questão": q,
@@ -394,7 +439,7 @@ with tab_correcao:
         nota = (total_acertos / 40.0) * 10.0
 
         st.divider()
-        st.subheader("🎯 Resultado da Avaliação")
+        st.subheader(f"🎯 Resultado da Avaliação - {dia_sel}")
 
         m1, m2, m3 = st.columns(3)
         m1.metric("Total de Acertos", f"{total_acertos} / 40")
@@ -403,21 +448,28 @@ with tab_correcao:
 
         cols_disc = st.columns(len(acertos_por_disc))
         for i, (d_nome, d_acertos) in enumerate(acertos_por_disc.items()):
-            cols_disc[i].metric(d_nome.split(" ")[0], f"{d_acertos}/{total_por_disc.get(d_nome, 5)}")
+            max_q = len(disc_map[d_nome])
+            cols_disc[i].metric(d_nome.split(" ")[0], f"{d_acertos}/{max_q}")
 
         c_salvar, c_cancelar = st.columns(2)
         if c_salvar.button("💾 Salvar Resultado no Histórico", type="primary"):
             registro = {
-                "Série": ano_estudante, "Turma": turma_selecionada, "Nº": num_aluno,
-                "Matrícula": mat_aluno, "Aluno": nome_aluno, "Total Acertos": total_acertos,
+                "Dia": dia_sel,
+                "Série": ano_estudante,
+                "Turma": turma_selecionada,
+                "Nº": num_aluno,
+                "Matrícula": mat_aluno,
+                "Aluno": nome_aluno,
+                "Total Acertos": total_acertos,
                 "Nota Final": round(nota, 2)
             }
             for d_nome, d_acertos in acertos_por_disc.items():
-                registro[d_nome.split(" ")[0]] = f"{d_acertos}/{total_por_disc.get(d_nome, 5)}"
+                max_q = len(disc_map[d_nome])
+                registro[d_nome.split(" ")[0]] = f"{d_acertos}/{max_q}"
 
             st.session_state["historico"].append(registro)
             salvar_historico_em_disco(st.session_state["historico"])
-            st.success(f"Resultado de {nome_aluno} salvo com sucesso!")
+            st.success(f"Resultado de {nome_aluno} ({dia_sel}) salvo com sucesso!")
 
         if c_cancelar.button("🗑️ Limpar Resultado"):
             del st.session_state["respostas_extraidas"]
@@ -437,6 +489,8 @@ with tab_manual:
 
     with col_m_aluno:
         st.subheader("1. Identificação do Estudante")
+        
+        dia_man = st.selectbox("Selecione o Dia do Simulado:", options=["1º Dia", "2º Dia"], key="dia_man_sel")
         dados_turmas = st.session_state["dados_turmas"]
         lista_turmas = list(dados_turmas.keys())
 
@@ -457,7 +511,7 @@ with tab_manual:
         with st.expander("📄 Ficha do Aluno", expanded=True):
             st.markdown(f"**Nome:** {nome_m}")
             st.markdown(f"**Turma:** {turma_man} | **Nº Chamada:** {num_m if num_m else 'N/A'}")
-            st.info(f"🎯 **Série / Ano:** {ano_estudante_man}")
+            st.info(f"🎯 **Série e Dia:** {ano_estudante_man} - {dia_man}")
 
     with col_m_nota:
         st.subheader("2. Lançamento da Nota")
@@ -478,17 +532,25 @@ with tab_manual:
 
         acertos_disc_man = {}
         if com_detalhamento:
-            st.caption("Informe os acertos por matéria:")
+            st.caption(f"Informe os acertos por matéria do **{dia_man}**:")
             c_d1, c_d2 = st.columns(2)
             
-            acertos_disc_man["Filosofia"] = c_d1.number_input("Filosofia (máx 5):", 0, 5, 0)
-            acertos_disc_man["História"] = c_d1.number_input("História (máx 5):", 0, 5, 0)
-            acertos_disc_man["Geografia"] = c_d1.number_input("Geografia (máx 5):", 0, 5, 0)
-            acertos_disc_man["Sociologia"] = c_d1.number_input("Sociologia (máx 5):", 0, 5, 0)
-            
-            acertos_disc_man["Educação"] = c_d2.number_input("Educação Física (máx 4):", 0, 4, 0)
-            acertos_disc_man["Inglês"] = c_d2.number_input("Inglês (máx 6):", 0, 6, 0)
-            acertos_disc_man["Português"] = c_d2.number_input("Português (máx 10):", 0, 10, 0)
+            if dia_man == "1º Dia":
+                acertos_disc_man["Filosofia"] = c_d1.number_input("Filosofia (máx 5):", 0, 5, 0)
+                acertos_disc_man["História"] = c_d1.number_input("História (máx 5):", 0, 5, 0)
+                acertos_disc_man["Geografia"] = c_d1.number_input("Geografia (máx 5):", 0, 5, 0)
+                acertos_disc_man["Sociologia"] = c_d1.number_input("Sociologia (máx 5):", 0, 5, 0)
+                
+                acertos_disc_man["Educação"] = c_d2.number_input("Educação Física (máx 4):", 0, 4, 0)
+                acertos_disc_man["Inglês"] = c_d2.number_input("Inglês (máx 6):", 0, 6, 0)
+                acertos_disc_man["Português"] = c_d2.number_input("Português (máx 10):", 0, 10, 0)
+            else:
+                acertos_disc_man["Matemática"] = c_d1.number_input("Matemática (máx 12):", 0, 12, 0)
+                acertos_disc_man["Física"] = c_d1.number_input("Física (máx 8):", 0, 8, 0)
+                acertos_disc_man["Química"] = c_d1.number_input("Química (máx 8):", 0, 8, 0)
+                
+                acertos_disc_man["Biologia"] = c_d2.number_input("Biologia (máx 7):", 0, 7, 0)
+                acertos_disc_man["Artes"] = c_d2.number_input("Artes (máx 5):", 0, 5, 0)
 
             soma_acertos = sum(acertos_disc_man.values())
             st.info(f"Soma dos acertos inseridos: **{soma_acertos} / 40**")
@@ -501,6 +563,7 @@ with tab_manual:
                 st.warning("⚠️ Selecione ou informe o nome do aluno.")
             else:
                 registro_m = {
+                    "Dia": dia_man,
                     "Série": ano_estudante_man,
                     "Turma": turma_man,
                     "Nº": num_m,
@@ -511,35 +574,40 @@ with tab_manual:
                 }
 
                 if com_detalhamento:
-                    registro_m["Filosofia"] = f"{acertos_disc_man['Filosofia']}/5"
-                    registro_m["História"] = f"{acertos_disc_man['História']}/5"
-                    registro_m["Geografia"] = f"{acertos_disc_man['Geografia']}/5"
-                    registro_m["Sociologia"] = f"{acertos_disc_man['Sociologia']}/5"
-                    registro_m["Educação"] = f"{acertos_disc_man['Educação']}/4"
-                    registro_m["Inglês"] = f"{acertos_disc_man['Inglês']}/6"
-                    registro_m["Português"] = f"{acertos_disc_man['Português']}/10"
-                else:
-                    total_por_disc = {"Filosofia": 5, "História": 5, "Geografia": 5, "Sociologia": 5, "Educação": 4, "Inglês": 6, "Português": 10}
-                    for d_key in total_por_disc.keys():
-                        registro_m[d_key] = "N/A"
+                    for k_d, v_d in acertos_disc_man.items():
+                        max_d = 5
+                        if k_d == "Matemática": max_d = 12
+                        elif k_d in ["Física", "Química"]: max_d = 8
+                        elif k_d == "Biologia": max_d = 7
+                        elif k_d == "Educação": max_d = 4
+                        elif k_d == "Inglês": max_d = 6
+                        elif k_d == "Português": max_d = 10
+                        registro_m[k_d] = f"{v_d}/{max_d}"
 
                 st.session_state["historico"].append(registro_m)
                 salvar_historico_em_disco(st.session_state["historico"])
-                st.success(f"✅ Nota do estudante **{nome_m}** ({nota_m:.2f}) salva com sucesso no histórico!")
+                st.success(f"✅ Nota do estudante **{nome_m}** ({dia_man}) salva com sucesso!")
 
 # ---------------------------------------------------------
 # ABA 3: GABARITOS OFICIAIS
 # ---------------------------------------------------------
 with tab_gabarito:
     st.header("Cadastrar e Gerenciar Gabaritos Oficiais")
-    ano_gab_sel = st.selectbox("Selecione o Ano / Série:", ["1º Ano", "2º Ano", "3º Ano"])
-    disc_filtro = st.selectbox("Filtrar por Disciplina:", ["Todas as Disciplinas"] + list(DISCIPLINAS_MAP.keys()))
+    
+    col_g1, col_g2 = st.columns(2)
+    dia_gab_sel = col_g1.selectbox("Selecione o Dia:", ["1º Dia", "2º Dia"])
+    ano_gab_sel = col_g2.selectbox("Selecione o Ano / Série:", ["1º Ano", "2º Ano", "3º Ano"])
+    
+    chave_gab_sel = f"{ano_gab_sel} - {dia_gab_sel}"
+    disc_map_sel = DISCIPLINAS_POR_DIA[dia_gab_sel]
+    
+    disc_filtro = st.selectbox("Filtrar por Disciplina:", ["Todas as Disciplinas"] + list(disc_map_sel.keys()))
 
-    gabarito_ano_atual = st.session_state["gabaritos_oficiais"].get(ano_gab_sel, {})
-    questoes_exibidas = range(1, 41) if disc_filtro == "Todas as Disciplinas" else DISCIPLINAS_MAP[disc_filtro]
+    gabarito_ano_atual = st.session_state["gabaritos_oficiais"].get(chave_gab_sel, {})
+    questoes_exibidas = range(1, 41) if disc_filtro == "Todas as Disciplinas" else disc_map_sel[disc_filtro]
 
     df_gab_editor = pd.DataFrame([
-        {"Questão": q, "Disciplina": obter_disciplina(q), "Gabarito Oficial": gabarito_ano_atual.get(q, "A")}
+        {"Questão": q, "Disciplina": obter_disciplina(q, dia_gab_sel), "Gabarito Oficial": gabarito_ano_atual.get(q, "A")}
         for q in questoes_exibidas
     ])
 
@@ -549,11 +617,15 @@ with tab_gabarito:
         hide_index=True, use_container_width=True
     )
 
-    if st.button("💾 Salvar Gabarito do " + ano_gab_sel, type="primary"):
+    if st.button(f"💾 Salvar Gabarito do {chave_gab_sel}", type="primary"):
+        if chave_gab_sel not in st.session_state["gabaritos_oficiais"]:
+            st.session_state["gabaritos_oficiais"][chave_gab_sel] = {}
+            
         for _, row_g in df_gab_modificado.iterrows():
-            st.session_state["gabaritos_oficiais"][ano_gab_sel][int(row_g["Questão"])] = str(row_g["Gabarito Oficial"])
+            st.session_state["gabaritos_oficiais"][chave_gab_sel][int(row_g["Questão"])] = str(row_g["Gabarito Oficial"])
+            
         salvar_gabaritos_em_disco(st.session_state["gabaritos_oficiais"])
-        st.success(f"Gabarito do {ano_gab_sel} salvo com sucesso!")
+        st.success(f"Gabarito do **{chave_gab_sel}** salvo com sucesso!")
 
 # ---------------------------------------------------------
 # ABA 4: ESTUDANTES
