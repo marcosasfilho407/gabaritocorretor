@@ -25,6 +25,44 @@ DISCIPLINAS_MAP = {
     "Português (31-40)": range(31, 41),
 }
 
+ALUNOS_3D_DEFAULT = [
+    {"numero": "1", "matricula": "0", "nome": "ALICE LEON CAMARGO MARTINS DIAS"},
+    {"numero": "2", "matricula": "0", "nome": "AMANDA MARIA DA CRUZ COSTA"},
+    {"numero": "3", "matricula": "0", "nome": "ANA BEATRIZ LEAL DE PAULA"},
+    {"numero": "4", "matricula": "0", "nome": "ANA CLARA LOPES DA SILVA"},
+    {"numero": "5", "matricula": "0", "nome": "ANA LARISSA SILVA MARINHO DE CARVALHO"},
+    {"numero": "6", "matricula": "0", "nome": "CARLOS VICTOR SANTOS SOUZA GRAMOSA"},
+    {"numero": "7", "matricula": "0", "nome": "CAUA JOSE DOS SANTOS"},
+    {"numero": "8", "matricula": "0", "nome": "EDUARDA VITORIA DA SILVA DE ALBUQUERQUE"},
+    {"numero": "9", "matricula": "0", "nome": "GABRIEL TAVERAS GOMES"},
+    {"numero": "10", "matricula": "0", "nome": "HICARO VINICIUS FELICIANO DOS SANTOS"},
+    {"numero": "11", "matricula": "0", "nome": "HILDA DANIELLY DA SILVA PEREIRA"},
+    {"numero": "12", "matricula": "0", "nome": "ISADORA VALENÇA CORDEIRO DOS SANTOS"},
+    {"numero": "13", "matricula": "0", "nome": "JENYPHER SAMARA BERNARDO DA SILVA"},
+    {"numero": "14", "matricula": "0", "nome": "JESSICA CRISTINA FERREIRA BARBOZA"},
+    {"numero": "15", "matricula": "0", "nome": "JHONATAS CARLOS CAVALCANTE LOPES DE LIMA"},
+    {"numero": "16", "matricula": "0", "nome": "JULYA SANTOS ALVES BARROS"},
+    {"numero": "17", "matricula": "0", "nome": "KAUANNY LETICIA BARROS QUEIROZ DA SILVA"},
+    {"numero": "18", "matricula": "0", "nome": "KAYLANY MARIA SANTANA DE ALMEIDA"},
+    {"numero": "19", "matricula": "0", "nome": "LARIANNY DA SILVA OLIVEIRA"},
+    {"numero": "20", "matricula": "0", "nome": "MARIA CAROLINA MOURA DE MENEZES FONSECA"},
+    {"numero": "21", "matricula": "0", "nome": "MARIA DA CONCEICAO DOS SANTOS GOMES"},
+    {"numero": "22", "matricula": "0", "nome": "MARIA HELOISA DA SILVA DO CARMO"},
+    {"numero": "23", "matricula": "0", "nome": "MARIA LUIZA LIMA TEIXEIRA"},
+    {"numero": "24", "matricula": "0", "nome": "MARIA VITORIA PEREIRA DO NASCIMENTO"},
+    {"numero": "25", "matricula": "0", "nome": "NICHOLAS YURI SILVA DE ARAUJO"},
+    {"numero": "26", "matricula": "0", "nome": "PAULO VICTOR LIRA CARNEIRO"},
+    {"numero": "27", "matricula": "0", "nome": "RAKELLY MARIA DE OLIVEIRA"},
+    {"numero": "28", "matricula": "0", "nome": "REBECA GABRIELLY MENDES DA CUNHA"},
+    {"numero": "29", "matricula": "0", "nome": "SAMANTHA MARIA DE AZEVEDO SILVA"},
+    {"numero": "30", "matricula": "0", "nome": "SAMUELL ANDERSSON SOUZA DA SILVA"},
+    {"numero": "31", "matricula": "0", "nome": "TAISA BARBOSA GUSMÃO"},
+    {"numero": "32", "matricula": "0", "nome": "THAUAN LOURENCO DA SILVA"},
+    {"numero": "33", "matricula": "0", "nome": "VITORIA GABRIELA DA SILVA"},
+    {"numero": "34", "matricula": "0", "nome": "PAULO VINICIUS DE AGUIAR BATISTA"},
+    {"numero": "35", "matricula": "0", "nome": "GABRYEL ELIAS DIAS MELO"}
+]
+
 # ---------------------------------------------------------
 # FUNÇÕES DE PERSISTÊNCIA E DADOS
 # ---------------------------------------------------------
@@ -71,42 +109,7 @@ def aplicar_estilo_jt():
 DADOS_ALUNOS_EMBUTIDOS = """Turma,Número,Matrícula,Nome
 1º A,1,3256964,ADRIAN VINICIUS GONÇALVES OLIVEIRA
 1º A,2,3976582,ANA ALICE TRINDADE SALES DE LIMA
-1º A,3,3989573,ARTHUR GUSMAO SILVA CAMPELO
-3º D,1,0,ALICE LEON CAMARGO MARTINS DIAS
-3º D,2,0,AMANDA MARIA DA CRUZ COSTA
-3º D,3,0,ANA BEATRIZ LEAL DE PAULA
-3º D,4,0,ANA CLARA LOPES DA SILVA
-3º D,5,0,ANA LARISSA SILVA MARINHO DE CARVALHO
-3º D,6,0,CARLOS VICTOR SANTOS SOUZA GRAMOSA
-3º D,7,0,CAUA JOSE DOS SANTOS
-3º D,8,0,EDUARDA VITORIA DA SILVA DE ALBUQUERQUE
-3º D,9,0,GABRIEL TAVERAS GOMES
-3º D,10,0,HICARO VINICIUS FELICIANO DOS SANTOS
-3º D,11,0,HILDA DANIELLY DA SILVA PEREIRA
-3º D,12,0,ISADORA VALENÇA CORDEIRO DOS SANTOS
-3º D,13,0,JENYPHER SAMARA BERNARDO DA SILVA
-3º D,14,0,JESSICA CRISTINA FERREIRA BARBOZA
-3º D,15,0,JHONATAS CARLOS CAVALCANTE LOPES DE LIMA
-3º D,16,0,JULYA SANTOS ALVES BARROS
-3º D,17,0,KAUANNY LETICIA BARROS QUEIROZ DA SILVA
-3º D,18,0,KAYLANY MARIA SANTANA DE ALMEIDA
-3º D,19,0,LARIANNY DA SILVA OLIVEIRA
-3º D,20,0,MARIA CAROLINA MOURA DE MENEZES FONSECA
-3º D,21,0,MARIA DA CONCEICAO DOS SANTOS GOMES
-3º D,22,0,MARIA HELOISA DA SILVA DO CARMO
-3º D,23,0,MARIA LUIZA LIMA TEIXEIRA
-3º D,24,0,MARIA VITORIA PEREIRA DO NASCIMENTO
-3º D,25,0,NICHOLAS YURI SILVA DE ARAUJO
-3º D,26,0,PAULO VICTOR LIRA CARNEIRO
-3º D,27,0,RAKELLY MARIA DE OLIVEIRA
-3º D,28,0,REBECA GABRIELLY MENDES DA CUNHA
-3º D,29,0,SAMANTHA MARIA DE AZEVEDO SILVA
-3º D,30,0,SAMUELL ANDERSSON SOUZA DA SILVA
-3º D,31,0,TAISA BARBOSA GUSMÃO
-3º D,32,0,THAUAN LOURENCO DA SILVA
-3º D,33,0,VITORIA GABRIELA DA SILVA
-3º D,34,0,PAULO VINICIUS DE AGUIAR BATISTA
-3º D,35,0,GABRYEL ELIAS DIAS MELO"""
+1º A,3,3989573,ARTHUR GUSMAO SILVA CAMPELO"""
 
 GABARITOS_DEFAULT = {
     "1º Ano": {q: "ABCDE"[(q - 1) % 5] for q in range(1, 41)},
@@ -158,6 +161,11 @@ def carregar_estudantes():
              "nome": str(r["Nome"]).strip()}
             for _, r in group.iterrows()
         ]
+    
+    # Inclusão forçada da Turma 3º D caso não esteja no arquivo lido
+    if "3º D" not in turmas and "3D" not in turmas:
+        turmas["3º D"] = ALUNOS_3D_DEFAULT
+
     return turmas
 
 def obter_ano_da_turma(turma):
@@ -263,12 +271,13 @@ def extrair_respostas_com_gemini(pil_image, api_key):
 st.set_page_config(page_title="EREM Joaquim Távora - Corretor OMR Gemini", layout="wide", page_icon="📌")
 aplicar_estilo_jt()
 
+# Força o recarregamento dos estudantes na sessão caso ainda não contenha a Turma 3º D
+st.session_state["dados_turmas"] = carregar_estudantes()
+
 if "gabaritos_oficiais" not in st.session_state:
     st.session_state["gabaritos_oficiais"] = carregar_gabaritos_do_disco()
 if "historico" not in st.session_state:
     st.session_state["historico"] = carregar_historico_do_disco()
-if "dados_turmas" not in st.session_state:
-    st.session_state["dados_turmas"] = carregar_estudantes()
 
 # Barra Lateral - Configuração da Chave da API
 with st.sidebar:
