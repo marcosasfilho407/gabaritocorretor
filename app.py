@@ -27,11 +27,11 @@ DISCIPLINAS_MAP_DIA1 = {
 }
 
 DISCIPLINAS_MAP_DIA2 = {
-    "Matemática (01-12)": range(1, 13),
-    "Física (13-20)": range(13, 21),
-    "Química (21-28)": range(21, 29),
-    "Biologia (29-35)": range(29, 36),
-    "Artes (36-40)": range(36, 41),
+    "Biologia (01-05)": range(1, 6),
+    "Química (06-10)": range(6, 11),
+    "Física (11-15)": range(11, 16),
+    "Matemática (16-25)": range(16, 26),
+    "Arte (26-30)": range(26, 31),
 }
 
 DISCIPLINAS_POR_DIA = {
@@ -129,9 +129,9 @@ GABARITOS_DEFAULT = {
     "1º Ano - 1º Dia": {q: "ABCDE"[(q - 1) % 5] for q in range(1, 41)},
     "2º Ano - 1º Dia": {q: "BCDEA"[(q - 1) % 5] for q in range(1, 41)},
     "3º Ano - 1º Dia": {q: "CDEAB"[(q - 1) % 5] for q in range(1, 41)},
-    "1º Ano - 2º Dia": {q: "ABCDE"[(q - 1) % 5] for q in range(1, 41)},
-    "2º Ano - 2º Dia": {q: "BCDEA"[(q - 1) % 5] for q in range(1, 41)},
-    "3º Ano - 2º Dia": {q: "CDEAB"[(q - 1) % 5] for q in range(1, 41)},
+    "1º Ano - 2º Dia": {q: "ABCDE"[(q - 1) % 5] for q in range(1, 31)},
+    "2º Ano - 2º Dia": {q: "BCDEA"[(q - 1) % 5] for q in range(1, 31)},
+    "3º Ano - 2º Dia": {q: "CDEAB"[(q - 1) % 5] for q in range(1, 31)},
 }
 
 def salvar_gabaritos_em_disco(gabaritos_dict):
@@ -146,14 +146,12 @@ def carregar_gabaritos_do_disco():
             
             gabaritos_tratados = {}
             for chave, gab in dados.items():
-                # Garante compatibilidade retroativa para chaves sem "- 1º Dia"
                 if " - " not in chave:
                     nova_chave = f"{chave} - 1º Dia"
                 else:
                     nova_chave = chave
                 gabaritos_tratados[nova_chave] = {int(q): str(r) for q, r in gab.items()}
             
-            # Preenche chaves padrão faltantes se necessário
             for k, v in GABARITOS_DEFAULT.items():
                 if k not in gabaritos_tratados:
                     gabaritos_tratados[k] = v.copy()
@@ -171,7 +169,6 @@ def carregar_historico_do_disco():
         try:
             with open(ARQUIVO_HISTORICO_JSON, "r", encoding="utf-8") as f:
                 dados = json.load(f)
-                # Garante que registros antigos tenham o campo "Dia" definido como "1º Dia"
                 for h in dados:
                     if "Dia" not in h:
                         h["Dia"] = "1º Dia"
@@ -245,21 +242,23 @@ def extrair_respostas_com_gemini(pil_image, api_key, dia="1º Dia"):
             candidatos.append(d)
 
     if dia == "2º Dia":
-        desc_disciplinas = "disciplinas do 2º Dia (Matemática 01-12, Física 13-20, Química 21-28, Biologia 29-35, Artes 36-40)"
+        desc_disciplinas = "disciplinas do 2º Dia (Biologia 01-05, Química 06-10, Física 11-15, Matemática 16-25, Arte 26-30)"
+        qtd_questoes = 30
     else:
         desc_disciplinas = "disciplinas do 1º Dia (Filosofia 01-05, História 06-10, Geografia 11-15, Sociologia 16-20, Educação Física 21-24, Inglês 25-30, Português 31-40)"
+        qtd_questoes = 40
 
     prompt = f"""
     Você é um sistema especialista em Leitura Óptica de Cartão-Resposta (OMR).
-    Analise esta imagem do 'CARTÃO-RESPOSTA - Simulado Trimestral' e extraia a opção preenchida/marcada pelo estudante para cada uma das 40 questões.
+    Analise esta imagem do 'CARTÃO-RESPOSTA - Simulado Trimestral' e extraia a opção preenchida/marcada pelo estudante para cada uma das {qtd_questoes} questões.
 
     Instruções de Análise:
-    - O cartão contém 40 questões numeradas de 01 a 40 divididas nas {desc_disciplinas}.
-    - Para cada questão de 1 a 40, identifique qual das opções (A, B, C, D ou E) está pintada/preenchida.
+    - O cartão contém {qtd_questoes} questões numeradas de 01 a {qtd_questoes} divididas nas {desc_disciplinas}.
+    - Para cada questão de 1 a {qtd_questoes}, identifique qual das opções (A, B, C, D ou E) está pintada/preenchida.
     - Se uma questão não tiver nenhuma bolinha pintada ou apresentar múltiplas marcas/rasuras, defina o valor como "Branco/Nulo".
 
     Formato de Saída OBRIGATÓRIO:
-    Retorne ESTRITAMENTE um objeto JSON válido onde as chaves sejam as questões como strings de "1" a "40" e os valores sejam a letra maiúscula correspondente ("A", "B", "C", "D", "E" ou "Branco/Nulo"). Não adicione nenhuma explicação, introdução ou raciocínio.
+    Retorne ESTRITAMENTE um objeto JSON válido onde as chaves sejam as questões como strings de "1" a "{qtd_questoes}" e os valores sejam a letra maiúscula correspondente ("A", "B", "C", "D", "E" ou "Branco/Nulo"). Não adicione nenhuma explicação, introdução ou raciocínio.
 
     Exemplo de formato:
     {{
@@ -267,7 +266,7 @@ def extrair_respostas_com_gemini(pil_image, api_key, dia="1º Dia"):
       "2": "C",
       "3": "A",
       ...
-      "40": "D"
+      "{qtd_questoes}": "D"
     }}
     """
 
@@ -417,7 +416,9 @@ with tab_correcao:
         disc_map = DISCIPLINAS_POR_DIA[dia_sel]
         acertos_por_disc = {disc: 0 for disc in disc_map.keys()}
 
-        for q in range(1, 41):
+        max_q = 30 if dia_sel == "2º Dia" else 40
+
+        for q in range(1, max_q + 1):
             resp = respostas_aluno.get(q, "Branco/Nulo")
             gab = gabarito_oficial.get(q, "-")
             correto = (resp == gab)
@@ -436,20 +437,20 @@ with tab_correcao:
                 "Status": "✅ Acertou" if correto else "❌ Errou",
             })
 
-        nota = (total_acertos / 40.0) * 10.0
+        nota = (total_acertos / float(max_q)) * 10.0
 
         st.divider()
         st.subheader(f"🎯 Resultado da Avaliação - {dia_sel}")
 
         m1, m2, m3 = st.columns(3)
-        m1.metric("Total de Acertos", f"{total_acertos} / 40")
+        m1.metric("Total de Acertos", f"{total_acertos} / {max_q}")
         m2.metric("Nota Final", f"{nota:.2f} / 10.0")
         m3.metric("Estudante / Turma", f"{nome_aluno} ({turma_selecionada})")
 
         cols_disc = st.columns(len(acertos_por_disc))
         for i, (d_nome, d_acertos) in enumerate(acertos_por_disc.items()):
-            max_q = len(disc_map[d_nome])
-            cols_disc[i].metric(d_nome.split(" ")[0], f"{d_acertos}/{max_q}")
+            max_q_disc = len(disc_map[d_nome])
+            cols_disc[i].metric(d_nome.split(" ")[0], f"{d_acertos}/{max_q_disc}")
 
         c_salvar, c_cancelar = st.columns(2)
         if c_salvar.button("💾 Salvar Resultado no Histórico", type="primary"):
@@ -464,8 +465,8 @@ with tab_correcao:
                 "Nota Final": round(nota, 2)
             }
             for d_nome, d_acertos in acertos_por_disc.items():
-                max_q = len(disc_map[d_nome])
-                registro[d_nome.split(" ")[0]] = f"{d_acertos}/{max_q}"
+                max_q_disc = len(disc_map[d_nome])
+                registro[d_nome.split(" ")[0]] = f"{d_acertos}/{max_q_disc}"
 
             st.session_state["historico"].append(registro)
             salvar_historico_em_disco(st.session_state["historico"])
@@ -516,16 +517,18 @@ with tab_manual:
     with col_m_nota:
         st.subheader("2. Lançamento da Nota")
         
-        tipo_entrada = st.radio("Modo de Entrada:", ["Total de Acertos (0 a 40)", "Nota Final Direta (0 a 10)"], horizontal=True)
+        tipo_entrada = st.radio("Modo de Entrada:", ["Total de Acertos", "Nota Final Direta (0 a 10)"], horizontal=True)
 
-        if tipo_entrada == "Total de Acertos (0 a 40)":
-            acertos_m = st.number_input("Total de Acertos (0 a 40):", min_value=0, max_value=40, value=20, step=1)
-            nota_m = (acertos_m / 40.0) * 10.0
+        max_q_man = 30 if dia_man == "2º Dia" else 40
+
+        if tipo_entrada == "Total de Acertos":
+            acertos_m = st.number_input(f"Total de Acertos (0 a {max_q_man}):", min_value=0, max_value=max_q_man, value=max_q_man//2, step=1)
+            nota_m = (acertos_m / float(max_q_man)) * 10.0
             st.metric("Nota Calculada", f"{nota_m:.2f} / 10.0")
         else:
             nota_m = st.number_input("Nota Final (0.0 a 10.0):", min_value=0.0, max_value=10.0, value=7.0, step=0.1)
-            acertos_m = int(round((nota_m / 10.0) * 40))
-            st.metric("Acertos Estimados", f"{acertos_m} / 40")
+            acertos_m = int(round((nota_m / 10.0) * max_q_man))
+            st.metric("Acertos Estimados", f"{acertos_m} / {max_q_man}")
 
         st.divider()
         com_detalhamento = st.checkbox("Deseja informar o acerto específico por disciplina?")
@@ -545,17 +548,17 @@ with tab_manual:
                 acertos_disc_man["Inglês"] = c_d2.number_input("Inglês (máx 6):", 0, 6, 0)
                 acertos_disc_man["Português"] = c_d2.number_input("Português (máx 10):", 0, 10, 0)
             else:
-                acertos_disc_man["Matemática"] = c_d1.number_input("Matemática (máx 12):", 0, 12, 0)
-                acertos_disc_man["Física"] = c_d1.number_input("Física (máx 8):", 0, 8, 0)
-                acertos_disc_man["Química"] = c_d1.number_input("Química (máx 8):", 0, 8, 0)
+                acertos_disc_man["Biologia"] = c_d1.number_input("Biologia (máx 5):", 0, 5, 0)
+                acertos_disc_man["Química"] = c_d1.number_input("Química (máx 5):", 0, 5, 0)
+                acertos_disc_man["Física"] = c_d1.number_input("Física (máx 5):", 0, 5, 0)
                 
-                acertos_disc_man["Biologia"] = c_d2.number_input("Biologia (máx 7):", 0, 7, 0)
-                acertos_disc_man["Artes"] = c_d2.number_input("Artes (máx 5):", 0, 5, 0)
+                acertos_disc_man["Matemática"] = c_d2.number_input("Matemática (máx 10):", 0, 10, 0)
+                acertos_disc_man["Arte"] = c_d2.number_input("Arte (máx 5):", 0, 5, 0)
 
             soma_acertos = sum(acertos_disc_man.values())
-            st.info(f"Soma dos acertos inseridos: **{soma_acertos} / 40**")
+            st.info(f"Soma dos acertos inseridos: **{soma_acertos} / {max_q_man}**")
             acertos_m = soma_acertos
-            nota_m = (acertos_m / 40.0) * 10.0
+            nota_m = (acertos_m / float(max_q_man)) * 10.0
 
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("💾 Salvar Nota Manual no Histórico", type="primary", use_container_width=True):
@@ -576,12 +579,9 @@ with tab_manual:
                 if com_detalhamento:
                     for k_d, v_d in acertos_disc_man.items():
                         max_d = 5
-                        if k_d == "Matemática": max_d = 12
-                        elif k_d in ["Física", "Química"]: max_d = 8
-                        elif k_d == "Biologia": max_d = 7
+                        if k_d == "Matemática" or k_d == "Português": max_d = 10
                         elif k_d == "Educação": max_d = 4
                         elif k_d == "Inglês": max_d = 6
-                        elif k_d == "Português": max_d = 10
                         registro_m[k_d] = f"{v_d}/{max_d}"
 
                 st.session_state["historico"].append(registro_m)
@@ -604,7 +604,11 @@ with tab_gabarito:
     disc_filtro = st.selectbox("Filtrar por Disciplina:", ["Todas as Disciplinas"] + list(disc_map_sel.keys()))
 
     gabarito_ano_atual = st.session_state["gabaritos_oficiais"].get(chave_gab_sel, {})
-    questoes_exibidas = range(1, 41) if disc_filtro == "Todas as Disciplinas" else disc_map_sel[disc_filtro]
+    
+    if disc_filtro == "Todas as Disciplinas":
+        questoes_exibidas = range(1, 31) if dia_gab_sel == "2º Dia" else range(1, 41)
+    else:
+        questoes_exibidas = disc_map_sel[disc_filtro]
 
     df_gab_editor = pd.DataFrame([
         {"Questão": q, "Disciplina": obter_disciplina(q, dia_gab_sel), "Gabarito Oficial": gabarito_ano_atual.get(q, "A")}
